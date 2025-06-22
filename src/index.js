@@ -1,11 +1,30 @@
 const express = require('express');
+const morgan = require('morgan');
+const pool = require('./constants/db');
 const app = express();
-const PUERTO = 3000;
+const cors = require('cors')
+const PORT = 3000;
+app.use(morgan('dev'))
+//initialize middlewares
+app.use(express.json());
+app.use(cors({
+    origin: true,
+    credentials: true
+  }));
 
-app.get('/', (req, res) => {
-  res.send('¡Hola, mundo desde Express de');
-});
+const authRoutes=require('./routes/users.routes');
 
-app.listen(PUERTO, () => {
-  console.log(`Servidor escuchando en el puerto http://localhost:${PUERTO}`);
-});
+app.use(authRoutes);
+
+const appStart =()=>{
+  try {
+      app.listen(PORT,()=>{
+          console.log(`listener: ${PORT}`);
+      })
+      
+  } catch (error) {
+      console.log(`Error:${error.message}`);
+  }
+}
+
+appStart()
