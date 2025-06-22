@@ -1,6 +1,6 @@
 const pool = require("../constants/db");
 const {hash} = require('bcrypt');
-const { sign } = require("jsonwebtoken");
+const { verify , sign} = require("jsonwebtoken");
 const{v4}=require("uuid");
 const { SECRET } = require("../constants");
 
@@ -41,8 +41,7 @@ const login= async (req,res)=>{
         email: user.email,
         name: user.name, 
         phone:user.phone,
-        role:user.rol,
-        media_url:user.media_url,
+        role:user.role
     }
     
     try {
@@ -62,8 +61,34 @@ const login= async (req,res)=>{
     }
 }
 
+const verifyToken = (req, res, next) => {
+    const authHeader = req.headers['authorization'];
+    if (!authHeader) {
+        return res.status(401).json({ error: 'Acceso no autorizado: Token no proporcionado.' });
+    }
+
+    const token = authHeader.split(' ')[1]; 
+
+    if (!token) {
+        return res.status(401).json({ error: 'Acceso no autorizado: Formato de token incorrecto.' });
+    }
+
+    try {
+        const decoded = verify(token, process.env.SECRET);
+        req.user = decoded; 
+        console.log(decoded);
+        next(); 
+
+    } catch (error) {
+        console.error('Error al verificar token:', error.message);
+        return res.status(403).json({ error: 'Token inválido o expirado. Acceso denegado.' });
+    }
+};
+  
+
 module.exports ={
     getUsers,
     register,
-    login
+    login,
+    verifyToken
 }
