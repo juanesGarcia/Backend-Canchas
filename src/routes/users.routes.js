@@ -9,7 +9,6 @@ const {
     loginValidation,
     updateValidator} = require("../validators/users");
 const { validationMiddleware } = require("../middlewares/validation-middleware"); 
-const pool = require("../constants/db");
 const router = Router();
 
 router.get('/users',getUsers);

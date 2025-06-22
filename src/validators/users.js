@@ -1,6 +1,6 @@
 const { check } = require("express-validator");
 const db = require("../constants/db");
-const { compare } = require("bcryptjs");
+const { compare } = require("bcrypt");
 
 
 

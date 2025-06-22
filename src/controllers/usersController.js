@@ -1,10 +1,12 @@
 const pool = require("../constants/db");
-const {hash} = require('bcryptjs');
+const {hash} = require('bcrypt');
 const { sign } = require("jsonwebtoken");
+const{v4}=require("uuid");
+const { SECRET } = require("../constants");
 
 const getUsers =async(req, res) => {
     try {
-     const result = await pool.query('select (id,nombre,apellido) from usuarios');
+     const result = await pool.query('select (id,name,email,password,role,phone) from users');
       res.json(result.rows)
     } catch (error) {
         console.log(error.message)
@@ -12,13 +14,13 @@ const getUsers =async(req, res) => {
 }
 
 const register =async(req, res) => {
-    const {email,password,name,rol,phone} = req.body;
+    const {email,password,name,role,phone} = req.body;
     console.log(req.body)
-    console.log(rol)
+    console.log(role)
     try {
         const id= v4()
         const hashedPassword = await hash(password,10)
-        await pool.query('insert into users(id,name,email,password,rol,phone) values ($1, $2,$3,$4,$5,$6) ',[ id,name,email,hashedPassword,rol,phone])
+        await pool.query('insert into users(id,name,email,password,role,phone) values ($1, $2,$3,$4,$5,$6) ',[ id,name,email,hashedPassword,role,phone])
         return res.status(201).json({
             success: true,
             message: " the registracion was succefull",
@@ -39,7 +41,7 @@ const login= async (req,res)=>{
         email: user.email,
         name: user.name, 
         phone:user.phone,
-        rol:user.rol,
+        role:user.rol,
         media_url:user.media_url,
     }
     
