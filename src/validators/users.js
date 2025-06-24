@@ -20,7 +20,7 @@ const password= check('password')
 
   const email = check('email')
   .isEmail()
-  .withMessage('VALID EMAIL')
+  .withMessage('Email valido')
   .matches(/^[\w-]+(\.[\w-]+)*@([\w-]+\.)+[a-zA-Z]{2,7}$/)
   .withMessage('Debe proporcionar un correo electrónico válido');
 
@@ -30,19 +30,19 @@ const emailExist = check('email').custom(async(value)=>{
     ])
 
  if(rows.length){
-    throw new Error("Email Already Exist")
+    throw new Error("Ya existe el email")
  }
 })
 
 const loginCheck = check('email').custom(async(value, {req})=>{
   const user = await db.query('select * from users where email = $1',[value])
   if(!user.rows.length){
-    throw new Error("Email doesn't exist")
+    throw new Error("No existe el email")
   }
   const validPassword= await compare(req.body.password,user.rows[0].password)
 
   if(!validPassword){
-    throw new Error("Incorrect password")
+    throw new Error("Contrasena incorrecta")
   }
   req.user = user.rows[0]
 })
@@ -53,7 +53,7 @@ const nameExist = check('name').custom(async(value)=>{
   ])
 
 if(rows.length){
-  throw new Error("name Already Exist")
+  throw new Error("Ya existe el nombre")
 }
 })
 

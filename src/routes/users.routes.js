@@ -3,7 +3,9 @@ const {
 getUsers,
 register,
 login,
-verifyToken
+verifyToken,
+updateUser,
+deleteUser
 }=require("../controllers/usersController")
 const {
     registerValidator, 
@@ -12,10 +14,11 @@ const {
     } = require("../validators/users");
 const { validationMiddleware } = require("../middlewares/validation-middleware"); 
 const authorizeRoles = require("../middlewares/auth-roles-middleware");
+const {userAuth} = require("../middlewares/users-middleware");
 const router = Router();
 
 router.get('/users',getUsers);
-router.post('/register',registerValidator,validationMiddleware,register);
+router.post('/register',registerValidator,verifyToken,authorizeRoles('superadmin'),validationMiddleware,register);
 router.post('/login',loginValidation,validationMiddleware,login);
 router.get(
     '/admin/dashboard',
@@ -25,4 +28,6 @@ router.get(
         res.status(200).json({ message: 'Bienvenido al panel de Superadmin!' });
     }
 );
+router.put('/user/:id',userAuth, updateValidator,validationMiddleware,updateUser);
+router.delete('/user/:id',userAuth,deleteUser);
 module.exports = router;
