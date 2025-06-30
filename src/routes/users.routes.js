@@ -5,7 +5,10 @@ register,
 login,
 verifyToken,
 updateUser,
-deleteUser
+deleteUser,
+uploadImages,
+getImages,
+deleteImages
 }=require("../controllers/usersController")
 const {
     registerValidator, 
@@ -15,6 +18,8 @@ const {
 const { validationMiddleware } = require("../middlewares/validation-middleware"); 
 const authorizeRoles = require("../middlewares/auth-roles-middleware");
 const {userAuth} = require("../middlewares/users-middleware");
+const multer = require('multer');
+const upload = multer({ dest: 'uploads/' });
 const router = Router();
 
 router.get('/users',getUsers);
@@ -30,4 +35,10 @@ router.get(
 );
 router.put('/user/:id',userAuth, updateValidator,validationMiddleware,updateUser);
 router.delete('/user/:id',userAuth,deleteUser);
+router.post('/upload/:id',upload.array('photo', 5),uploadImages);
+router.get('/getimages/:id',getImages)
+router.delete('/deleteimages/:postId', deleteImages);
+
+
+
 module.exports = router;
