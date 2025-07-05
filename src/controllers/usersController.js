@@ -9,7 +9,7 @@ const {
   getFileNameFromUrl,
   deleteFileByNamepro,
 } = require("../firebase");
-const fs = require("fs/promises");
+const fs = require("fs").promises;
 const path = require("path");
 
 const getUsers = async (req, res) => {
@@ -24,9 +24,26 @@ const getUsers = async (req, res) => {
 };
 
 const register = async (req, res) => {
-  const { email, password, name, role, phone } = req.body;
+  const {
+    email,
+    password,
+    name,
+    role,
+    phone,
+    courtName,
+    courtAddress,
+    courtCity,
+    courtPhone,
+    courtType,
+    is_public,
+    description,
+    state,
+    subcourts
+  } = req.body;
+
   console.log(req.body);
   console.log(role);
+
   try {
     const id = v4();
     const hashedPassword = await hash(password, 10);
@@ -34,6 +51,26 @@ const register = async (req, res) => {
       "insert into users(id,name,email,password,role,phone) values ($1, $2,$3,$4,$5,$6) ",
       [id, name, email, hashedPassword, role, phone]
     );
+
+    const courtId = v4();
+    const now = new Date();
+    await pool.query(
+      "insert into courts(id, name, address, city, phone, courttype, is_public, description, create_at, update_at, sata) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+      [courtId, courtName, courtAddress, courtCity, courtPhone, courtType, is_public, description, now, now, state]
+    );
+
+    if (subcourts && Array.isArray(subcourts) && subcourts.length > 0) {
+      for (const subcourt of subcourts) {
+        const subcourtId = v4();
+        const { subcourtName, state: subcourtState } = subcourt; // Destructure subcourtName and subcourtState
+
+        await pool.query(
+          "insert into subcourts(id, court_id, name, create_at, update_at, state) values ($1, $2, $3, $4, $5, $6)",
+          [subcourtId, courtId, subcourtName, now, now, subcourtState]
+        );
+      }
+    }
+
     return res.status(201).json({
       success: true,
       message: "el registro fue exitoso",
@@ -172,21 +209,29 @@ const uploadImages = async (req, res) => {
   const { description } = req.body;
 
   if (!req.files || req.files.length === 0) {
-    console.error("Error: No se subieron archivos para la cancha.");
     return res.status(400).json({
       error: "Debe subir al menos una imagen para la cancha.",
     });
   }
+
+  const filesToCleanup = req.files.map(file => file.path).filter(Boolean);
+
   try {
     const getCourtResult = await pool.query(
       "SELECT id from courts where user_id=$1",
       [id]
     );
-    console.log(getCourtResult);
+
+    if (getCourtResult.rows.length === 0) {
+      return res.status(404).json({
+        error: "Cancha no encontrada para el usuario proporcionado.",
+      });
+    }
+
     let courtId = getCourtResult.rows[0].id;
-    console.log(courtId);
+
     const courtResult = await pool.query(
-      "UPDATE courts SET description = $1, updated_at = NOW() WHERE id = $2  RETURNING id,name",
+      "UPDATE courts SET description = $1, updated_at = NOW() WHERE id = $2 RETURNING id,name",
       [description, courtId]
     );
 
@@ -197,96 +242,76 @@ const uploadImages = async (req, res) => {
           "INSERT INTO photos (court_id, url) VALUES ($1, $2) RETURNING id, url",
           [courtId, result.url]
         );
-        return { success: true, data: insertPhotoResult.rows[0] }; // Retorna éxito y datos
+        return { success: true, data: insertPhotoResult.rows[0], filePath: file.path };
       } catch (photoError) {
-        console.error(
-          `Error al insertar la foto para courtId ${courtId}, originalname ${file.originalname}:`,
-          photoError
-        );
         return {
           success: false,
           error: photoError.message,
           originalname: file.originalname,
-        }; // Retorna fallo y error
+          filePath: file.path
+        };
       }
     });
-const photoInsertResults = await Promise.all(photoInsertPromises);
-console.log(
-  "Todas las inserciones de fotos terminadas. Resultados:",
-  photoInsertResults
-);
 
-await Promise.all(
-  req.files.map(async (file) => {
-    const MAX_RETRIES = 5; // Número máximo de reintentos
-    const RETRY_DELAY_MS = 200; // Retraso base entre reintentos
-    for (let i = 0; i < MAX_RETRIES; i++) {
-      try {
-        if (file.path) {
-          // Añadir un retraso antes de cada intento de eliminación (inicial + creciente)
-          await new Promise((resolve) => setTimeout(resolve, 100 + i * RETRY_DELAY_MS));
-          await fs.unlink(file.path); // Usa fs.promises.unlink para borrar asíncronamente
-          console.log(`Archivo temporal eliminado: ${file.path}`);
-          break; // Salir del bucle si la eliminación fue exitosa
-        }
-      } catch (unlinkError) {
-        if (unlinkError.code === "EPERM") {
-          console.warn(
-            `Intento ${i + 1}/${MAX_RETRIES}: No se pudo eliminar el archivo temporal '${file.path}' (EPERM), reintentando...`,
-            unlinkError.message
-          );
-          if (i === MAX_RETRIES - 1) { // Si es el último intento y sigue fallando
-            console.error(`Falló la eliminación del archivo temporal '${file.path}' después de ${MAX_RETRIES} intentos:`, unlinkError.message);
+    const photoInsertResults = await Promise.all(photoInsertPromises);
+
+    const cleanupPromises = filesToCleanup.map(async (filePath) => {
+      if (!filePath) return;
+
+      const MAX_RETRIES = 15;
+      const RETRY_DELAY_MS = 300;
+
+      for (let i = 0; i < MAX_RETRIES; i++) {
+        try {
+          await new Promise((resolve) => setTimeout(resolve, 150 + i * RETRY_DELAY_MS));
+          await fs.unlink(filePath);
+          return { success: true, filePath: filePath };
+        } catch (unlinkError) {
+          if (unlinkError.code === "EPERM") {
+            if (i === MAX_RETRIES - 1) {
+              return { success: false, filePath: filePath, error: unlinkError.message };
+            }
+          } else if (unlinkError.code === "ENOENT") {
+            return { success: true, filePath: filePath };
+          } else {
+            return { success: false, filePath: filePath, error: unlinkError.message };
           }
-        } else if (unlinkError.code !== "ENOENT") { // 'ENOENT' significa que el archivo no existe (no es un error real aquí)
-          console.warn(
-            `No se pudo eliminar el archivo temporal '${file.path}':`,
-            unlinkError.message
-          );
-        }
-        // Si no es un error EPERM, o si ya se agotaron los reintentos EPERM, no reintentar
-        if (unlinkError.code !== "EPERM" || i === MAX_RETRIES - 1) {
-          break;
         }
       }
-    }
-  })
-);
-
-const failedPhotoOperations = photoInsertResults.filter((r) => !r.success);
-if (failedPhotoOperations.length > 0) {
-  console.error(
-    "Algunas operaciones de fotos (subida/inserción en DB) fallaron:",
-    failedPhotoOperations
-  );
-}
-
-
-    const courtWithPhotosResult = await pool.query(
-      `SELECT
-                c.id AS court_id,
-                c.user_id,
-                p.id,
-                p.url
-            FROM
-                courts c
-            LEFT JOIN
-                photos p ON c.id = p.court_id
-            WHERE
-                c.id = $1`,
-      [courtId]
-    );
-
-    const courtData = courtWithPhotosResult.rows[0];
-
-    res.json({
-      message: "Cancha y fotos insertadas correctamente.",
-      court: courtData,
     });
+
+    await Promise.all(cleanupPromises);
+
+    const failedPhotoOperations = photoInsertResults.filter((r) => !r.success);
+    if (failedPhotoOperations.length > 0) {
+      return res.status(500).json({
+        message: "Se procesaron las imágenes, pero algunas operaciones fallaron.",
+        details: failedPhotoOperations,
+      });
+    }
+
+    res.status(200).json({
+      message: "Imágenes subidas y descripción actualizada exitosamente.",
+      court: courtResult.rows[0],
+      uploadedPhotos: photoInsertResults.map(r => r.data),
+    });
+
   } catch (error) {
-    console.error("Error al subir las fotos y crear la cancha:", error);
+    const cleanupOnFailPromises = filesToCleanup.map(async (filePath) => {
+      if (!filePath) return;
+      try {
+        await fs.unlink(filePath);
+      } catch (cleanupError) {
+        if (cleanupError.code !== "ENOENT") {
+          
+        }
+      }
+    });
+    await Promise.all(cleanupOnFailPromises);
+
     res.status(500).json({
-      error: error.message,
+      error: "Error interno del servidor al procesar las imágenes.",
+      details: error.message,
     });
   }
 };
@@ -295,12 +320,12 @@ const getImages = async (req, res) => {
   const { id } = req.params;
 
   try {
-    const result = await pool.query(
-      "SELECT id, title, user_id, created_at, media_urls FROM courts WHERE user_id = $1",
+    const courtsResult = await pool.query(
+      "SELECT id, name, user_id, created_at FROM courts WHERE user_id = $1",
       [id]
     );
 
-    if (result.rows.length === 0) {
+    if (courtsResult.rows.length === 0) {
       return res.json({
         success: true,
         message: "El usuario no tiene canchas ni imágenes asociadas.",
@@ -311,16 +336,29 @@ const getImages = async (req, res) => {
       });
     }
 
+    const courtsWithPhotos = await Promise.all(
+      courtsResult.rows.map(async (courtRow) => {
+        const photosResult = await pool.query(
+          "SELECT url FROM photos WHERE court_id = $1",
+          [courtRow.id]
+        );
+
+        const photos = photosResult.rows.map((photoRow) => ({
+          url: photoRow.url,
+        }));
+
+        return {
+          court_id: courtRow.id,
+          description: courtRow.name,
+          created_at: courtRow.created_at,
+          photos: photos,
+        };
+      })
+    );
+
     const userData = {
-      user_id: result.rows[0].user_id,
-      courts: result.rows.map((row) => ({
-        court_id: row.id,
-        title: row.title,
-        created_at: row.created_at,
-        photos: row.media_urls
-          ? row.media_urls.map((url) => ({ media_url: url }))
-          : [],
-      })),
+      user_id: courtsResult.rows[0].user_id,
+      courts: courtsWithPhotos,
     };
 
     res.json({
@@ -336,43 +374,43 @@ const getImages = async (req, res) => {
     });
   }
 };
-
 const deleteImages = async (req, res) => {
-  const { courtId } = req.params;
-  console.log(courtId);
+  const { id, courtId } = req.params;
 
+  const photoIdToUse = id ? String(id).replace(/\s/g, '').trim() : null;
+  const courtIdToUse = courtId ? String(courtId).replace(/\s/g, '').trim() : null;
+  console.log(photoIdToUse);
+  console.log(courtIdToUse);
   try {
-    const courtToDelete = await pool.query(
-      "SELECT media_urls FROM courts WHERE id = $1",
-      [courtId]
-    );
-
-    if (courtToDelete.rows.length === 0) {
-      return res.status(404).json({
-        message: "Cancha no encontrada.",
+    if (!photoIdToUse || !courtIdToUse) {
+      return res.status(400).json({
+        success: false,
+        message: "Faltan los IDs de la imagen o la cancha en la solicitud.",
       });
     }
 
-    const mediaUrlsToDelete = courtToDelete.rows[0].media_urls || [];
-
-    await pool.query("DELETE FROM courts WHERE id = $1", [courtId]);
-
-    await Promise.all(
-      mediaUrlsToDelete.map(async (url) => {
-        const fileName = url.substring(url.lastIndexOf("/") + 1);
-        if (fileName) {
-          await deleteFileByName(fileName);
-        }
-      })
+    const deleteDbResult = await pool.query(
+      "DELETE FROM photos WHERE id= $1 AND court_id= $2 RETURNING id",
+      [photoIdToUse, courtIdToUse]
     );
 
+    if (deleteDbResult.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "La imagen no fue encontrada o no pertenece a la cancha especificada.",
+      });
+    }
+
     res.json({
-      message: "Cancha y fotos asociadas eliminadas correctamente.",
+      success: true,
+      message: "Imagen eliminada correctamente.",
+      deleted_image_id: photoIdToUse,
     });
   } catch (error) {
-    console.error("Error al eliminar la cancha y las fotos:", error);
+    console.error(error.message);
     res.status(500).json({
-      error: error.message,
+      success: false,
+      message: "Error al eliminar la imagen.",
     });
   }
 };
@@ -386,5 +424,5 @@ module.exports = {
   updateUser,
   uploadImages,
   getImages,
-  deleteImages,
+  deleteImages
 };

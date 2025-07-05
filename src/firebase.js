@@ -2,7 +2,7 @@ const admin = require("firebase-admin");
 const serviceAccount = require("./credentials.json");
 const { v4: uuidv4 } = require('uuid');
 const path = require('path');
-const sharp = require('sharp');  // Agregado sharp
+const sharp = require('sharp');  
 const { parse } = require('url');
 
 const firebaseConfig = {

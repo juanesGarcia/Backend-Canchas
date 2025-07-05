@@ -37,7 +37,7 @@ router.put('/user/:id',userAuth, updateValidator,validationMiddleware,updateUser
 router.delete('/user/:id',userAuth,deleteUser);
 router.post('/upload/:id',upload.array('photo', 5),uploadImages);
 router.get('/getimages/:id',getImages)
-router.delete('/deleteimages/:postId', deleteImages);
+router.delete('/deleteimages/:id/:courtId', deleteImages);
 
 
 
