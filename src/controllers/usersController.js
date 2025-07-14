@@ -674,7 +674,7 @@ const deletePost = async (req, res) => {
             try {
                 const fileName = getFileNameFromUrl(photo.url);
                 if (fileName) {
-                    await deleteFileByName(fileName);
+                    await deleteFileByNamepro(fileName);
                 }
                 return { success: true, url: photo.url };
             } catch (firebaseError) {
