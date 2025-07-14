@@ -55,7 +55,7 @@ const register = async (req, res) => {
     const courtId = v4();
     const now = new Date();
     await pool.query(
-      "insert into courts(id, name, address, city, phone, courttype, is_public, description, create_at, update_at, sata) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+      "insert into courts(id, name, address, city, phone, court_type, is_public, description, created_at, updated_at, state) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
       [courtId, courtName, courtAddress, courtCity, courtPhone, courtType, is_public, description, now, now, state]
     );
 
@@ -65,7 +65,7 @@ const register = async (req, res) => {
         const { subcourtName, state: subcourtState } = subcourt; // Destructure subcourtName and subcourtState
 
         await pool.query(
-          "insert into subcourts(id, court_id, name, create_at, update_at, state) values ($1, $2, $3, $4, $5, $6)",
+          "insert into subcourts(id, court_id, name, created_at, updated_at, state) values ($1, $2, $3, $4, $5, $6)",
           [subcourtId, courtId, subcourtName, now, now, subcourtState]
         );
       }

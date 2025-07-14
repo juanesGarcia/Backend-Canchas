@@ -23,7 +23,7 @@ const upload = multer({ dest: 'uploads/' });
 const router = Router();
 
 router.get('/users',getUsers);
-router.post('/register',registerValidator,verifyToken,authorizeRoles('superadmin'),validationMiddleware,register);
+router.post('/register',registerValidator,validationMiddleware,register);
 router.post('/login',loginValidation,validationMiddleware,login);
 router.get(
     '/admin/dashboard',
