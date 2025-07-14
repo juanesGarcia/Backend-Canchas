@@ -415,6 +415,319 @@ const deleteImages = async (req, res) => {
   }
 };
 
+const createPost = async (req, res) => {
+  const { title, content, state } = req.body;
+  const userId = req.user.id; // Asume que req.user.id es populado por un middleware (ej. verifyToken)
+
+  if (!title || !content) {
+    return res.status(400).json({ error: "Título y contenido son obligatorios para un post." });
+  }
+
+  const filesToCleanup = req.files ? req.files.map(file => file.path).filter(Boolean) : [];
+
+  try {
+    const postId = v4();
+    const now = new Date();
+
+    // Insertar en la tabla 'posts'
+    await pool.query(
+      "INSERT INTO posts (id, user_id, title, content, created_at, updated_at, state) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+      [postId, userId, title, content, now, now, state]
+    );
+
+    // Manejar la subida de imágenes si hay archivos adjuntos
+    if (req.files && req.files.length > 0) {
+      const photoInsertPromises = req.files.map(async (file) => {
+        try {
+          const result = await uploadFiles(file); // Sube la imagen a Firebase
+          await pool.query(
+            "INSERT INTO post_photos (id, post_id, url, created_at, updated_at) VALUES ($1, $2, $3, $4, $5)",
+            [v4(), postId, result.url, now, now]
+          );
+          return { success: true, url: result.url, filePath: file.path };
+        } catch (photoError) {
+          return { success: false, error: photoError.message, originalname: file.originalname, filePath: file.path };
+        }
+      });
+
+      const photoInsertResults = await Promise.all(photoInsertPromises);
+      const failedPhotoOperations = photoInsertResults.filter(r => !r.success);
+
+      if (failedPhotoOperations.length > 0) {
+        console.warn("Algunas imágenes no se pudieron subir para el post:", postId, failedPhotoOperations);
+      }
+    }
+
+    // Limpiar archivos temporales locales
+    const cleanupPromises = filesToCleanup.map(async (filePath) => {
+      if (!filePath) return;
+      try {
+        await fs.unlink(filePath);
+      } catch (unlinkError) {
+        if (unlinkError.code !== "ENOENT") {
+          console.error("Error al limpiar archivo local:", filePath, unlinkError.message);
+        }
+      }
+    });
+    await Promise.all(cleanupPromises);
+
+    return res.status(201).json({
+      success: true,
+      message: "Post creado exitosamente.",
+      postId: postId,
+    });
+
+  } catch (error) {
+    const cleanupOnFailPromises = filesToCleanup.map(async (filePath) => {
+      if (!filePath) return;
+      try {
+        await fs.unlink(filePath);
+      } catch (cleanupError) {
+        if (cleanupError.code !== "ENOENT") {
+          console.error("Error durante la limpieza después de un fallo:", filePath, cleanupError.message);
+        }
+      }
+    });
+    await Promise.all(cleanupOnFailPromises);
+
+    console.error("Error al crear post:", error.message);
+    return res.status(500).json({
+      error: "Error al crear post: " + error.message,
+    });
+  }
+};
+
+// Read Posts (Obtener todos los posts con sus fotos)
+const getPosts = async (req, res) => {
+    try {
+        const result = await pool.query(`
+            SELECT
+                p.id AS post_id,
+                p.user_id,
+                u.name AS user_name,
+                p.title,
+                p.content,
+                p.state,
+                p.created_at,
+                p.updated_at,
+                json_agg(json_build_object('id', pp.id, 'url', pp.url)) FILTER (WHERE pp.id IS NOT NULL) AS photos
+            FROM
+                posts p
+            LEFT JOIN
+                users u ON p.user_id = u.id -- Unir con la tabla users para obtener el nombre del usuario
+            LEFT JOIN
+                post_photos pp ON p.id = pp.post_id
+            GROUP BY
+                p.id, u.name -- Agrupar también por el nombre del usuario
+            ORDER BY
+                p.created_at DESC;
+        `);
+        return res.status(200).json({ success: true, posts: result.rows });
+    } catch (error) {
+        console.error("Error al obtener posts:", error.message);
+        return res.status(500).json({ error: "Error al obtener posts: " + error.message });
+    }
+};
+
+// Read Post by ID (Obtener un post específico con sus fotos)
+const getPostById = async (req, res) => {
+    const { id } = req.params; // ID del post
+
+    try {
+        const result = await pool.query(`
+            SELECT
+                p.id AS post_id,
+                p.user_id,
+                u.name AS user_name,
+                p.title,
+                p.content,
+                p.state,
+                p.created_at,
+                p.updated_at,
+                json_agg(json_build_object('id', pp.id, 'url', pp.url)) FILTER (WHERE pp.id IS NOT NULL) AS photos
+            FROM
+                posts p
+            LEFT JOIN
+                users u ON p.user_id = u.id
+            LEFT JOIN
+                post_photos pp ON p.id = pp.post_id
+            WHERE
+                p.id = $1
+            GROUP BY
+                p.id, u.name;
+        `, [id]);
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ success: false, message: "Post no encontrado." });
+        }
+
+        return res.status(200).json({ success: true, post: result.rows[0] });
+    } catch (error) {
+        console.error("Error al obtener post por ID:", error.message);
+        return res.status(500).json({ error: "Error al obtener post: " + error.message });
+    }
+};
+
+// Update Post (Actualizar un post y agregar nuevas imágenes)
+const updatePost = async (req, res) => {
+    const { id } = req.params; // ID del post
+    const { title, content, state } = req.body;
+    const userId = req.user.id; // ID del usuario que realiza la solicitud
+    const filesToCleanup = req.files ? req.files.map(file => file.path).filter(Boolean) : [];
+
+    try {
+        // 1. Verificar si el post existe y si el usuario tiene permiso
+        const postResult = await pool.query(
+            "SELECT user_id FROM posts WHERE id = $1",
+            [id]
+        );
+
+        if (postResult.rows.length === 0) {
+            return res.status(404).json({ error: "Post no encontrado." });
+        }
+
+        const postOwnerId = postResult.rows[0].user_id;
+
+        // Autorización: Solo el propietario del post o un admin puede actualizarlo
+        if (userId !== postOwnerId && req.user.role !== 'admin') {
+            return res.status(403).json({ error: "No tienes permiso para actualizar este post." });
+        }
+
+        const now = new Date();
+        // 2. Actualizar la información del post
+        await pool.query(
+            "UPDATE posts SET title = $1, content = $2, state = $3, updated_at = $4 WHERE id = $5",
+            [title, content, state, now, id]
+        );
+
+        // 3. Manejar la subida de nuevas imágenes (se añaden a las existentes)
+        if (req.files && req.files.length > 0) {
+            const photoInsertPromises = req.files.map(async (file) => {
+                try {
+                    const result = await uploadFiles(file);
+                    await pool.query(
+                        "INSERT INTO post_photos (id, post_id, url, created_at, updated_at) VALUES ($1, $2, $3, $4, $5)",
+                        [v4(), id, result.url, now, now]
+                    );
+                    return { success: true, url: result.url, filePath: file.path };
+                } catch (photoError) {
+                    return { success: false, error: photoError.message, originalname: file.originalname, filePath: file.path };
+                }
+            });
+            await Promise.all(photoInsertPromises);
+        }
+
+        // 4. Limpiar archivos temporales locales
+        const cleanupPromises = filesToCleanup.map(async (filePath) => {
+            if (!filePath) return;
+            try {
+                await fs.unlink(filePath);
+            } catch (unlinkError) {
+                if (unlinkError.code !== "ENOENT") {
+                    console.error("Error al limpiar archivo local después de la actualización:", filePath, unlinkError.message);
+                }
+            }
+        });
+        await Promise.all(cleanupPromises);
+
+
+        return res.status(200).json({ success: true, message: "Post actualizado exitosamente." });
+
+    } catch (error) {
+        const cleanupOnFailPromises = filesToCleanup.map(async (filePath) => {
+            if (!filePath) return;
+            try {
+                await fs.unlink(filePath);
+            } catch (cleanupError) {
+                if (cleanupError.code !== "ENOENT") {
+                    console.error("Error durante la limpieza después de fallo en actualización:", filePath, cleanupError.message);
+                }
+            }
+        });
+        await Promise.all(cleanupOnFailPromises);
+
+        console.error("Error al actualizar post:", error.message);
+        return res.status(500).json({ error: "Error al actualizar post: " + error.message });
+    }
+};
+
+// Delete Post (Eliminar un post y sus imágenes asociadas de la base de datos y Firebase)
+const deletePost = async (req, res) => {
+    const { id } = req.params; // ID del post a eliminar
+    const userId = req.user.id; // ID del usuario que realiza la solicitud
+
+    try {
+        // Iniciar una transacción para asegurar la atomicidad
+        await pool.query('BEGIN');
+
+        // 1. Obtener detalles del post para autorización y URLs de las fotos
+        const postResult = await pool.query(
+            "SELECT user_id FROM posts WHERE id = $1",
+            [id]
+        );
+
+        if (postResult.rows.length === 0) {
+            await pool.query('ROLLBACK');
+            return res.status(404).json({ error: "Post no encontrado." });
+        }
+
+        const postOwnerId = postResult.rows[0].user_id;
+
+        // Autorización: Solo el propietario del post o un admin puede eliminarlo
+        if (userId !== postOwnerId && req.user.role !== 'admin') {
+            await pool.query('ROLLBACK');
+            return res.status(403).json({ error: "No tienes permiso para eliminar este post." });
+        }
+
+        // 2. Obtener las URLs de las fotos asociadas al post
+        const photosResult = await pool.query(
+            "SELECT id, url FROM post_photos WHERE post_id = $1",
+            [id]
+        );
+        const photosToDelete = photosResult.rows;
+
+        // 3. Eliminar las fotos de Firebase (si las hay)
+        const firebaseDeletePromises = photosToDelete.map(async (photo) => {
+            try {
+                const fileName = getFileNameFromUrl(photo.url);
+                if (fileName) {
+                    await deleteFileByName(fileName);
+                }
+                return { success: true, url: photo.url };
+            } catch (firebaseError) {
+                console.error("Error al eliminar foto de Firebase:", photo.url, firebaseError.message);
+                return { success: false, url: photo.url, error: firebaseError.message };
+            }
+        });
+        await Promise.all(firebaseDeletePromises); // Continúa aunque algunas eliminaciones de Firebase fallen
+
+        // 4. Eliminar las fotos de la tabla post_photos
+        // Esto también se encargaría de la eliminación en cascada si se configuró así en la FK
+        // Si no tienes ON DELETE CASCADE, esta línea sería necesaria:
+        await pool.query("DELETE FROM post_photos WHERE post_id = $1", [id]);
+
+        // 5. Eliminar el post en sí
+        const deletePostResult = await pool.query("DELETE FROM posts WHERE id = $1", [id]);
+
+        if (deletePostResult.rowCount === 0) {
+            await pool.query('ROLLBACK');
+            return res.status(404).json({ error: "Post no encontrado después de verificar." });
+        }
+
+        // Si todo va bien, confirmar la transacción
+        await pool.query('COMMIT');
+
+        return res.status(200).json({ success: true, message: "Post eliminado exitosamente y sus imágenes asociadas." });
+
+    } catch (error) {
+        // Si algo falla, revertir la transacción
+        await pool.query('ROLLBACK');
+        console.error("Error al eliminar post:", error.message);
+        return res.status(500).json({ error: "Error al eliminar post: " + error.message });
+    }
+};
+
+
 module.exports = {
   getUsers,
   register,
@@ -424,5 +737,10 @@ module.exports = {
   updateUser,
   uploadImages,
   getImages,
-  deleteImages
+  deleteImages,
+  createPost,
+  getPosts,
+  getPostById,    
+  updatePost,     
+  deletePost 
 };
