@@ -44,17 +44,22 @@ const register = async (req, res) => {
   console.log(req.body);
   console.log(role);
 
+  const client = await pool.connect();
   try {
+    await client.query('BEGIN');
+
     const id = v4();
     const hashedPassword = await hash(password, 10);
-    await pool.query(
+
+    await client.query(
       "insert into users(id,name,email,password,role,phone) values ($1, $2,$3,$4,$5,$6) ",
       [id, name, email, hashedPassword, role, phone]
     );
 
     const courtId = v4();
     const now = new Date();
-    await pool.query(
+
+    await client.query(
       "insert into courts(id, name, address, city, phone, court_type, is_public, description, created_at, updated_at, state) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
       [courtId, courtName, courtAddress, courtCity, courtPhone, courtType, is_public, description, now, now, state]
     );
@@ -62,23 +67,30 @@ const register = async (req, res) => {
     if (subcourts && Array.isArray(subcourts) && subcourts.length > 0) {
       for (const subcourt of subcourts) {
         const subcourtId = v4();
-        const { subcourtName, state: subcourtState } = subcourt; // Destructure subcourtName and subcourtState
+        const { subcourtName, state: subcourtState } = subcourt;
 
-        await pool.query(
+        await client.query(
           "insert into subcourts(id, court_id, name, created_at, updated_at, state) values ($1, $2, $3, $4, $5, $6)",
           [subcourtId, courtId, subcourtName, now, now, subcourtState]
         );
       }
     }
 
+    await client.query('COMMIT');
+
     return res.status(201).json({
       success: true,
-      message: "el registro fue exitoso",
+      message: "El registro fue exitoso y todos los datos fueron guardados.",
     });
   } catch (error) {
+    await client.query('ROLLBACK');
+    console.error("Error en el registro (transacción revertida):", error.message);
     return res.status(500).json({
       error: error.message,
+      message: "No se pudo completar el registro debido a un error. Ningún dato fue guardado."
     });
+  } finally {
+    client.release();
   }
 };
 
