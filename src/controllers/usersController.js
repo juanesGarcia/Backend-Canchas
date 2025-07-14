@@ -417,7 +417,7 @@ const deleteImages = async (req, res) => {
 
 const createPost = async (req, res) => {
   const { title, content, state } = req.body;
-  const userId = req.user.id; // Asume que req.user.id es populado por un middleware (ej. verifyToken)
+  const userId = req.user.id; 
 
   if (!title || !content) {
     return res.status(400).json({ error: "Título y contenido son obligatorios para un post." });
@@ -429,17 +429,15 @@ const createPost = async (req, res) => {
     const postId = v4();
     const now = new Date();
 
-    // Insertar en la tabla 'posts'
     await pool.query(
       "INSERT INTO posts (id, user_id, title, content, created_at, updated_at, state) VALUES ($1, $2, $3, $4, $5, $6, $7)",
       [postId, userId, title, content, now, now, state]
     );
 
-    // Manejar la subida de imágenes si hay archivos adjuntos
     if (req.files && req.files.length > 0) {
       const photoInsertPromises = req.files.map(async (file) => {
         try {
-          const result = await uploadFiles(file); // Sube la imagen a Firebase
+          const result = await uploadFiles(file); 
           await pool.query(
             "INSERT INTO post_photos (id, post_id, url, created_at, updated_at) VALUES ($1, $2, $3, $4, $5)",
             [v4(), postId, result.url, now, now]
@@ -458,7 +456,6 @@ const createPost = async (req, res) => {
       }
     }
 
-    // Limpiar archivos temporales locales
     const cleanupPromises = filesToCleanup.map(async (filePath) => {
       if (!filePath) return;
       try {
@@ -496,8 +493,6 @@ const createPost = async (req, res) => {
     });
   }
 };
-
-// Read Posts (Obtener todos los posts con sus fotos)
 const getPosts = async (req, res) => {
     try {
         const result = await pool.query(`
@@ -529,9 +524,9 @@ const getPosts = async (req, res) => {
     }
 };
 
-// Read Post by ID (Obtener un post específico con sus fotos)
+
 const getPostById = async (req, res) => {
-    const { id } = req.params; // ID del post
+    const { id } = req.params; 
 
     try {
         const result = await pool.query(`
@@ -568,15 +563,13 @@ const getPostById = async (req, res) => {
     }
 };
 
-// Update Post (Actualizar un post y agregar nuevas imágenes)
 const updatePost = async (req, res) => {
     const { id } = req.params; // ID del post
     const { title, content, state } = req.body;
-    const userId = req.user.id; // ID del usuario que realiza la solicitud
+    const userId = req.user.id; 
     const filesToCleanup = req.files ? req.files.map(file => file.path).filter(Boolean) : [];
 
     try {
-        // 1. Verificar si el post existe y si el usuario tiene permiso
         const postResult = await pool.query(
             "SELECT user_id FROM posts WHERE id = $1",
             [id]
@@ -588,19 +581,16 @@ const updatePost = async (req, res) => {
 
         const postOwnerId = postResult.rows[0].user_id;
 
-        // Autorización: Solo el propietario del post o un admin puede actualizarlo
         if (userId !== postOwnerId && req.user.role !== 'admin') {
             return res.status(403).json({ error: "No tienes permiso para actualizar este post." });
         }
 
         const now = new Date();
-        // 2. Actualizar la información del post
         await pool.query(
             "UPDATE posts SET title = $1, content = $2, state = $3, updated_at = $4 WHERE id = $5",
             [title, content, state, now, id]
         );
 
-        // 3. Manejar la subida de nuevas imágenes (se añaden a las existentes)
         if (req.files && req.files.length > 0) {
             const photoInsertPromises = req.files.map(async (file) => {
                 try {
@@ -616,8 +606,7 @@ const updatePost = async (req, res) => {
             });
             await Promise.all(photoInsertPromises);
         }
-
-        // 4. Limpiar archivos temporales locales
+ 
         const cleanupPromises = filesToCleanup.map(async (filePath) => {
             if (!filePath) return;
             try {
@@ -651,16 +640,12 @@ const updatePost = async (req, res) => {
     }
 };
 
-// Delete Post (Eliminar un post y sus imágenes asociadas de la base de datos y Firebase)
 const deletePost = async (req, res) => {
-    const { id } = req.params; // ID del post a eliminar
-    const userId = req.user.id; // ID del usuario que realiza la solicitud
+    const { id } = req.params; 
+    const userId = req.user.id;
 
     try {
-        // Iniciar una transacción para asegurar la atomicidad
         await pool.query('BEGIN');
-
-        // 1. Obtener detalles del post para autorización y URLs de las fotos
         const postResult = await pool.query(
             "SELECT user_id FROM posts WHERE id = $1",
             [id]
@@ -673,20 +658,18 @@ const deletePost = async (req, res) => {
 
         const postOwnerId = postResult.rows[0].user_id;
 
-        // Autorización: Solo el propietario del post o un admin puede eliminarlo
         if (userId !== postOwnerId && req.user.role !== 'admin') {
             await pool.query('ROLLBACK');
             return res.status(403).json({ error: "No tienes permiso para eliminar este post." });
         }
 
-        // 2. Obtener las URLs de las fotos asociadas al post
         const photosResult = await pool.query(
             "SELECT id, url FROM post_photos WHERE post_id = $1",
             [id]
         );
         const photosToDelete = photosResult.rows;
 
-        // 3. Eliminar las fotos de Firebase (si las hay)
+
         const firebaseDeletePromises = photosToDelete.map(async (photo) => {
             try {
                 const fileName = getFileNameFromUrl(photo.url);
@@ -699,14 +682,10 @@ const deletePost = async (req, res) => {
                 return { success: false, url: photo.url, error: firebaseError.message };
             }
         });
-        await Promise.all(firebaseDeletePromises); // Continúa aunque algunas eliminaciones de Firebase fallen
+        await Promise.all(firebaseDeletePromises); 
 
-        // 4. Eliminar las fotos de la tabla post_photos
-        // Esto también se encargaría de la eliminación en cascada si se configuró así en la FK
-        // Si no tienes ON DELETE CASCADE, esta línea sería necesaria:
         await pool.query("DELETE FROM post_photos WHERE post_id = $1", [id]);
 
-        // 5. Eliminar el post en sí
         const deletePostResult = await pool.query("DELETE FROM posts WHERE id = $1", [id]);
 
         if (deletePostResult.rowCount === 0) {
@@ -714,13 +693,11 @@ const deletePost = async (req, res) => {
             return res.status(404).json({ error: "Post no encontrado después de verificar." });
         }
 
-        // Si todo va bien, confirmar la transacción
         await pool.query('COMMIT');
 
         return res.status(200).json({ success: true, message: "Post eliminado exitosamente y sus imágenes asociadas." });
 
     } catch (error) {
-        // Si algo falla, revertir la transacción
         await pool.query('ROLLBACK');
         console.error("Error al eliminar post:", error.message);
         return res.status(500).json({ error: "Error al eliminar post: " + error.message });

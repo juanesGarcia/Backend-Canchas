@@ -8,7 +8,12 @@ updateUser,
 deleteUser,
 uploadImages,
 getImages,
-deleteImages
+deleteImages,
+createPost,
+getPosts,       
+getPostById,    
+updatePost,
+deletePost 
 }=require("../controllers/usersController")
 const {
     registerValidator, 
@@ -38,6 +43,11 @@ router.delete('/user/:id',userAuth,deleteUser);
 router.post('/upload/:id',upload.array('photo', 5),uploadImages);
 router.get('/getimages/:id',getImages)
 router.delete('/deleteimages/:id/:courtId', deleteImages);
+router.post('/posts', verifyToken, upload.array('images', 5), createPost); 
+router.get('/posts', getPosts); 
+router.get('/posts/:id', getPostById); 
+router.put('/posts/:id', verifyToken, upload.array('images', 5), updatePost); 
+router.delete('/posts/:id', verifyToken, deletePost); 
 
 
 
