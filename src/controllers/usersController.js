@@ -716,6 +716,317 @@ const deletePost = async (req, res) => {
     }
 };
 
+const getCourts = async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT
+          c.id AS court_id,
+          c.name AS court_name,
+          c.user_id,
+          u.name AS owner_name,
+          c.address,
+          c.city,
+          c.phone,
+          c.court_type,
+          c.is_public,
+          c.price AS default_price,
+          c.description,
+          c.state,
+          c.created_at,
+          c.updated_at,
+          COALESCE(json_agg(DISTINCT jsonb_build_object('id', sc.id, 'name', sc.name, 'state', sc.state)) FILTER (WHERE sc.id IS NOT NULL), '[]') AS subcourts,
+          COALESCE(json_agg(DISTINCT jsonb_build_object('id', cp.id, 'day_of_week', cp.day_of_week, 'price', cp.price)) FILTER (WHERE cp.id IS NOT NULL), '[]') AS court_prices,
+          COALESCE(json_agg(DISTINCT jsonb_build_object('id', cs.id, 'platform', cs.platform, 'url', cs.url)) FILTER (WHERE cs.id IS NOT NULL), '[]') AS court_socials,
+          COALESCE(json_agg(DISTINCT jsonb_build_object('id', p.id, 'url', p.url)) FILTER (WHERE p.id IS NOT NULL), '[]') AS photos
+      FROM
+          courts c
+      LEFT JOIN
+          users u ON c.user_id = u.id
+      LEFT JOIN
+          subcourts sc ON c.id = sc.court_id
+      LEFT JOIN
+          court_prices cp ON c.id = cp.court_id
+      LEFT JOIN
+          court_socials cs ON c.id = cs.court_id
+      LEFT JOIN
+          photos p ON c.id = p.court_id
+      GROUP BY
+          c.id, u.name
+      ORDER BY
+          c.created_at DESC;
+    `);
+    res.status(200).json({ success: true, courts: result.rows });
+  } catch (error) {
+    console.error("Error al obtener canchas:", error.message);
+    res.status(500).json({ error: "Error al obtener canchas: " + error.message });
+  }
+};
+
+const getCourtById = async (req, res) => {
+  const { id } = req.params; // courtId
+
+  try {
+    const result = await pool.query(`
+      SELECT
+          c.id AS court_id,
+          c.name AS court_name,
+          c.user_id,
+          u.name AS owner_name,
+          c.address,
+          c.city,
+          c.phone,
+          c.court_type,
+          c.is_public,
+          c.price AS default_price,
+          c.description,
+          c.state,
+          c.created_at,
+          c.updated_at,
+          COALESCE(json_agg(DISTINCT jsonb_build_object('id', sc.id, 'name', sc.name, 'state', sc.state)) FILTER (WHERE sc.id IS NOT NULL), '[]') AS subcourts,
+          COALESCE(json_agg(DISTINCT jsonb_build_object('id', cp.id, 'day_of_week', cp.day_of_week, 'price', cp.price)) FILTER (WHERE cp.id IS NOT NULL), '[]') AS court_prices,
+          COALESCE(json_agg(DISTINCT jsonb_build_object('id', cs.id, 'platform', cs.platform, 'url', cs.url)) FILTER (WHERE cs.id IS NOT NULL), '[]') AS court_socials,
+          COALESCE(json_agg(DISTINCT jsonb_build_object('id', p.id, 'url', p.url)) FILTER (WHERE p.id IS NOT NULL), '[]') AS photos
+      FROM
+          courts c
+      LEFT JOIN
+          users u ON c.user_id = u.id
+      LEFT JOIN
+          subcourts sc ON c.id = sc.court_id
+      LEFT JOIN
+          court_prices cp ON c.id = cp.court_id
+      LEFT JOIN
+          court_socials cs ON c.id = cs.court_id
+      LEFT JOIN
+          photos p ON c.id = p.court_id
+      WHERE
+          c.id = $1
+      GROUP BY
+          c.id, u.name;
+    `, [id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, message: "Cancha no encontrada." });
+    }
+    res.status(200).json({ success: true, court: result.rows[0] });
+  } catch (error) {
+    console.error("Error al obtener cancha por ID:", error.message);
+    res.status(500).json({ error: "Error al obtener cancha: " + error.message });
+  }
+};
+
+const updateCourt = async (req, res) => {
+  const { id } = req.params;
+  const {
+    name,
+    address,
+    city,
+    phone,
+    court_type,
+    is_public,
+    price,
+    description,
+    state,
+    subcourts,
+    court_prices,
+    court_socials
+  } = req.body;
+  const userId = req.user.id;
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(`SET app.current_user_id = '${userId}';`);
+
+    const courtResult = await client.query(
+      "SELECT user_id FROM courts WHERE id = $1",
+      [id]
+    );
+
+    if (courtResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: "Cancha no encontrada." });
+    }
+
+    const courtOwnerId = courtResult.rows[0].user_id;
+    if (userId !== courtOwnerId && req.user.role !== 'admin') {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: "No tienes permiso para actualizar esta cancha." });
+    }
+
+    const now = new Date();
+
+    await client.query(
+      `UPDATE courts SET
+        name = COALESCE($1, name),
+        address = COALESCE($2, address),
+        city = COALESCE($3, city),
+        phone = COALESCE($4, phone),
+        court_type = COALESCE($5, court_type),
+        is_public = COALESCE($6, is_public),
+        price = COALESCE($7, price),
+        description = COALESCE($8, description),
+        state = COALESCE($9, state),
+        updated_at = $10
+      WHERE id = $11`,
+      [name, address, city, phone, court_type, is_public, price, description, state, now, id]
+    );
+
+    if (subcourts !== undefined && Array.isArray(subcourts)) {
+      for (const subcourt of subcourts) {
+        if (subcourt.id) {
+          await client.query(
+            "UPDATE subcourts SET name = COALESCE($1, name), state = COALESCE($2, state), updated_at = $3 WHERE id = $4 AND court_id = $5",
+            [subcourt.name, subcourt.state, now, subcourt.id, id]
+          );
+        }
+      }
+    }
+
+    if (court_prices !== undefined && Array.isArray(court_prices)) {
+      for (const cp of court_prices) {
+        if (cp.id) {
+          await client.query(
+            "UPDATE court_prices SET day_of_week = COALESCE($1, day_of_week), price = COALESCE($2, price), updated_at = $3 WHERE id = $4 AND court_id = $5",
+            [cp.day_of_week, cp.price, now, cp.id, id]
+          );
+        }
+      }
+    }
+
+    if (court_socials !== undefined && Array.isArray(court_socials)) {
+      for (const cs of court_socials) {
+        if (cs.id) {
+          await client.query(
+            "UPDATE court_socials SET platform = COALESCE($1, platform), url = COALESCE($2, url), updated_at = $3 WHERE id = $4 AND court_id = $5",
+            [cs.platform, cs.url, now, cs.id, id]
+          );
+        }
+      }
+    }
+
+    await client.query('COMMIT');
+    res.status(200).json({ success: true, message: "Cancha y sus datos asociados actualizados exitosamente (solo registros existentes con ID)." });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error("Error al actualizar la cancha:", error.message);
+    res.status(500).json({ error: "Error al actualizar la cancha: " + error.message });
+  } finally {
+    client.release();
+  }
+};
+
+const deleteCourt = async (req, res) => {
+  const { id } = req.params;
+  const userId = req.user.id;
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(`SET app.current_user_id = '${userId}';`);
+
+    const courtResult = await client.query(
+      "SELECT user_id FROM courts WHERE id = $1",
+      [id]
+    );
+
+    if (courtResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: "Cancha no encontrada." });
+    }
+
+    const courtOwnerId = courtResult.rows[0].user_id;
+    if (userId !== courtOwnerId && req.user.role !== 'admin') {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: "No tienes permiso para eliminar esta cancha." });
+    }
+
+    const photosResult = await client.query(
+      "SELECT url FROM photos WHERE court_id = $1",
+      [id]
+    );
+    const photosToDelete = photosResult.rows;
+
+    const firebaseDeletePromises = photosToDelete.map(async (photo) => {
+      try {
+        const fileName = getFileNameFromUrl(photo.url);
+        if (fileName) {
+          await deleteFileByNamepro(fileName);
+        }
+        return { success: true, url: photo.url };
+      } catch (firebaseError) {
+        console.error("Error al eliminar foto de Firebase:", photo.url, firebaseError.message);
+        return { success: false, url: photo.url, error: firebaseError.message };
+      }
+    });
+    await Promise.all(firebaseDeletePromises);
+
+    const deleteCourtResult = await client.query("DELETE FROM courts WHERE id = $1", [id]);
+
+    if (deleteCourtResult.rowCount === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: "Cancha no encontrada después de verificar." });
+    }
+
+    await client.query('COMMIT');
+    res.status(200).json({ success: true, message: "Cancha y sus datos asociados eliminados exitosamente." });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error("Error al eliminar la cancha:", error.message);
+    res.status(500).json({ error: "Error al eliminar la cancha: " + error.message });
+  } finally {
+    client.release();
+  }
+};
+
+const deleteSubcourt = async (req, res) => {
+  const { subcourtId } = req.params;
+  const userId = req.user.id;
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(`SET app.current_user_id = '${userId}';`);
+
+    const subcourtResult = await client.query(
+      "SELECT court_id FROM subcourts WHERE id = $1",
+      [subcourtId]
+    );
+
+    if (subcourtResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: "Subcancha no encontrada." });
+    }
+
+    const courtId = subcourtResult.rows[0].court_id;
+
+    const courtOwnerResult = await client.query(
+      "SELECT user_id FROM courts WHERE id = $1",
+      [courtId]
+    );
+
+    const courtOwnerId = courtOwnerResult.rows[0].user_id;
+    if (userId !== courtOwnerId && req.user.role !== 'admin') {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: "No tienes permiso para eliminar esta subcancha." });
+    }
+
+    const deleteResult = await client.query("DELETE FROM subcourts WHERE id = $1", [subcourtId]);
+
+    if (deleteResult.rowCount === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: "Subcancha no encontrada después de verificar." });
+    }
+
+    await client.query('COMMIT');
+    res.status(200).json({ success: true, message: "Subcancha eliminada exitosamente." });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error("Error al eliminar la subcancha:", error.message);
+    res.status(500).json({ error: "Error al eliminar la subcancha: " + error.message });
+  } finally {
+    client.release();
+  }
+};
 
 module.exports = {
   getUsers,
@@ -731,5 +1042,10 @@ module.exports = {
   getPosts,
   getPostById,    
   updatePost,     
-  deletePost 
+  deletePost,
+  getCourts,
+  getCourtById,
+  updateCourt,
+  deleteCourt,
+  deleteSubcourt
 };
