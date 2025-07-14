@@ -13,7 +13,17 @@ createPost,
 getPosts,       
 getPostById,    
 updatePost,
-deletePost 
+deletePost,
+createPost,
+getPosts,
+getPostById,    
+updatePost,     
+deletePost,
+getCourts,
+getCourtById,
+updateCourt,
+deleteCourt,
+deleteSubcourt
 }=require("../controllers/usersController")
 const {
     registerValidator, 
@@ -48,7 +58,11 @@ router.get('/posts', getPosts);
 router.get('/posts/:id', getPostById); 
 router.put('/posts/:id', verifyToken, upload.array('images', 5), updatePost); 
 router.delete('/posts/:id', verifyToken, deletePost); 
-
+router.get('/courts', getCourts);
+router.get('/courts/:id', getCourtById);
+router.put('/courts/:id', userAuth, upload.array('newPhotos', 5), updateCourt);
+router.delete('/courts/:id', userAuth, deleteCourt);
+router.delete('/subcourts/:subcourtId', userAuth, deleteSubcourt);
 
 
 module.exports = router;
