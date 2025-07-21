@@ -5,9 +5,7 @@ const { v4 } = require("uuid");
 const { SECRET } = require("../constants");
 const {
   uploadFiles,
-  deleteFileByName,
-  getFileNameFromUrl,
-  deleteFileByNamepro,
+  deleteFileByName
 } = require("../firebase");
 const fs = require("fs").promises;
 const path = require("path");
@@ -34,7 +32,8 @@ const register = async (req, res) => {
     courtAddress,
     courtCity,
     courtPhone,
-    courtType,
+    court_type,
+    price,
     is_public,
     description,
     state,
@@ -42,26 +41,26 @@ const register = async (req, res) => {
   } = req.body;
 
   console.log(req.body);
-  console.log(role);
+  console.log(court_type);
 
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
 
-    const id = v4();
+    const user_id = v4();
     const hashedPassword = await hash(password, 10);
 
     await client.query(
-      "insert into users(id,name,email,password,role,phone) values ($1, $2,$3,$4,$5,$6) ",
-      [id, name, email, hashedPassword, role, phone]
+      "insert into users(id,name,email,password,role,phone,state) values ($1, $2,$3,$4,$5,$6,$7) ",
+      [user_id, name, email, hashedPassword, role, phone,state]
     );
 
     const courtId = v4();
     const now = new Date();
 
     await client.query(
-      "insert into courts(id, name, address, city, phone, court_type, is_public, description, created_at, updated_at, state) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
-      [courtId, courtName, courtAddress, courtCity, courtPhone, courtType, is_public, description, now, now, state]
+      "insert into courts(id, name, address, city, phone, court_type, is_public,price, description, created_at, updated_at, state, user_id) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,$12,$13)",
+      [courtId, courtName, courtAddress, courtCity, courtPhone, court_type, is_public,price, description, now, now, state,user_id]
     );
 
     if (subcourts && Array.isArray(subcourts) && subcourts.length > 0) {
@@ -240,19 +239,21 @@ const uploadImages = async (req, res) => {
       });
     }
 
-    let courtId = getCourtResult.rows[0].id;
-
+    let court_Id = getCourtResult.rows[0].id;
+console.log(court_Id);
     const courtResult = await pool.query(
       "UPDATE courts SET description = $1, updated_at = NOW() WHERE id = $2 RETURNING id,name",
-      [description, courtId]
+      [description, court_Id]
     );
 
     const photoInsertPromises = req.files.map(async (file) => {
       try {
         const result = await uploadFiles(file);
+         const photosId = v4();
+         const now = new Date();
         const insertPhotoResult = await pool.query(
-          "INSERT INTO photos (court_id, url) VALUES ($1, $2) RETURNING id, url",
-          [courtId, result.url]
+          "INSERT INTO photos (id,court_id, url,created_at,updated_at) VALUES ($1, $2,$3,$4,$5) RETURNING id, url",
+          [photosId,court_Id, result.url,now,now]
         );
         return { success: true, data: insertPhotoResult.rows[0], filePath: file.path };
       } catch (photoError) {
@@ -303,7 +304,7 @@ const uploadImages = async (req, res) => {
     }
 
     res.status(200).json({
-      message: "Imágenes subidas y descripción actualizada exitosamente.",
+      message: "Imágenes y descripción subidas exitosamente.",
       court: courtResult.rows[0],
       uploadedPhotos: photoInsertResults.map(r => r.data),
     });
@@ -315,7 +316,7 @@ const uploadImages = async (req, res) => {
         await fs.unlink(filePath);
       } catch (cleanupError) {
         if (cleanupError.code !== "ENOENT") {
-          
+          console.error(`Error inesperado al limpiar el archivo ${filePath}:`, cleanupError);
         }
       }
     });
@@ -387,50 +388,79 @@ const getImages = async (req, res) => {
   }
 };
 const deleteImages = async (req, res) => {
-  const { id, courtId } = req.params;
+    const { id, courtId } = req.params;
 
-  const photoIdToUse = id ? String(id).replace(/\s/g, '').trim() : null;
-  const courtIdToUse = courtId ? String(courtId).replace(/\s/g, '').trim() : null;
-  console.log(photoIdToUse);
-  console.log(courtIdToUse);
-  try {
-    if (!photoIdToUse || !courtIdToUse) {
-      return res.status(400).json({
-        success: false,
-        message: "Faltan los IDs de la imagen o la cancha en la solicitud.",
-      });
+    const photoIdToUse = id ? String(id).replace(/\s/g, '').trim() : null;
+    const courtIdToUse = courtId ? String(courtId).replace(/\s/g, '').trim() : null;
+
+    try {
+        if (!photoIdToUse || !courtIdToUse) {
+            return res.status(400).json({
+                success: false,
+                message: "Faltan los IDs de la imagen o la cancha en la solicitud.",
+            });
+        }
+
+        // PASO 1: Obtener la URL (que ahora es la ruta directa) de la base de datos
+        const getPhotoResult = await pool.query(
+            "SELECT url FROM photos WHERE id = $1 AND court_id = $2",
+            [photoIdToUse, courtIdToUse]
+        );
+
+        if (getPhotoResult.rows.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: "La imagen no fue encontrada o no pertenece a la cancha especificada.",
+            });
+        }
+
+        const filePathInFirebase = getPhotoResult.rows[0].url; // Aquí ya tienes la ruta que Firebase espera
+
+        if (!filePathInFirebase) {
+            return res.status(500).json({
+                success: false,
+                message: "Error interno: El nombre del archivo para eliminar está vacío en la base de datos.",
+            });
+        }
+
+        // PASO 2: Eliminar la imagen de la base de datos
+        const deleteDbResult = await pool.query(
+            "DELETE FROM photos WHERE id = $1 AND court_id = $2 RETURNING id",
+            [photoIdToUse, courtIdToUse]
+        );
+
+        try {
+            // PASO 3: Eliminar el archivo de Firebase Storage, usando la ruta directamente
+            await deleteFileByName(filePathInFirebase);
+            
+            res.json({
+                success: true,
+                message: "Imagen eliminada correctamente.",
+                deleted_image_id: photoIdToUse,
+            });
+        } catch (firebaseError) {
+            console.error("Error al eliminar de Firebase Storage después de borrar de la DB:", firebaseError);
+            res.status(200).json({
+                success: true,
+                message: "Imagen eliminada de la base de datos, pero hubo un error al eliminarla de Firebase Storage.",
+                deleted_image_id: photoIdToUse,
+                firebase_error_details: firebaseError.message
+            });
+        }
+
+    } catch (error) {
+        console.error("Error general al eliminar la imagen:", error.message);
+        res.status(500).json({
+            success: false,
+            message: "Error al eliminar la imagen.",
+            details: error.message,
+        });
     }
-
-    const deleteDbResult = await pool.query(
-      "DELETE FROM photos WHERE id= $1 AND court_id= $2 RETURNING id",
-      [photoIdToUse, courtIdToUse]
-    );
-
-    if (deleteDbResult.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: "La imagen no fue encontrada o no pertenece a la cancha especificada.",
-      });
-    }
-
-    res.json({
-      success: true,
-      message: "Imagen eliminada correctamente.",
-      deleted_image_id: photoIdToUse,
-    });
-  } catch (error) {
-    console.error(error.message);
-    res.status(500).json({
-      success: false,
-      message: "Error al eliminar la imagen.",
-    });
-  }
 };
-
 const createPost = async (req, res) => {
-  const { title, content, state } = req.body;
+  const { title, content } = req.body;
   const userId = req.user.id; 
-
+  const state = true;
   if (!title || !content) {
     return res.status(400).json({ error: "Título y contenido son obligatorios para un post." });
   }
@@ -916,66 +946,85 @@ const updateCourt = async (req, res) => {
 };
 
 const deleteCourt = async (req, res) => {
-  const { id } = req.params;
-  const userId = req.user.id;
+    const { id } = req.params; 
+    const userId = req.user.id; 
 
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    await client.query(`SET app.current_user_id = '${userId}';`);
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN'); 
+        await client.query(`SET app.current_user_id = '${userId}';`);
 
-    const courtResult = await client.query(
-      "SELECT user_id FROM courts WHERE id = $1",
-      [id]
-    );
+        const courtResult = await client.query(
+            "SELECT user_id FROM courts WHERE id = $1",
+            [id]
+        );
 
-    if (courtResult.rows.length === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ error: "Cancha no encontrada." });
-    }
-
-    const courtOwnerId = courtResult.rows[0].user_id;
-    if (userId !== courtOwnerId && req.user.role !== 'admin') {
-      await client.query('ROLLBACK');
-      return res.status(403).json({ error: "No tienes permiso para eliminar esta cancha." });
-    }
-
-    const photosResult = await client.query(
-      "SELECT url FROM photos WHERE court_id = $1",
-      [id]
-    );
-    const photosToDelete = photosResult.rows;
-
-    const firebaseDeletePromises = photosToDelete.map(async (photo) => {
-      try {
-        const fileName = getFileNameFromUrl(photo.url);
-        if (fileName) {
-          await deleteFileByNamepro(fileName);
+        if (courtResult.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ error: "Cancha no encontrada." });
         }
-        return { success: true, url: photo.url };
-      } catch (firebaseError) {
-        console.error("Error al eliminar foto de Firebase:", photo.url, firebaseError.message);
-        return { success: false, url: photo.url, error: firebaseError.message };
-      }
-    });
-    await Promise.all(firebaseDeletePromises);
 
-    const deleteCourtResult = await client.query("DELETE FROM courts WHERE id = $1", [id]);
+        const courtOwnerId = courtResult.rows[0].user_id;
+        if (userId !== courtOwnerId && req.user.role !== 'admin') {
+            await client.query('ROLLBACK');
+            return res.status(403).json({ error: "No tienes permiso para eliminar esta cancha." });
+        }
 
-    if (deleteCourtResult.rowCount === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ error: "Cancha no encontrada después de verificar." });
+        const photosResult = await client.query(
+            "SELECT url FROM photos WHERE id = $1",
+            [id]
+        );
+        const photosToDelete = photosResult.rows;
+
+        const firebaseDeletePromises = photosToDelete.map(async (photo) => {
+            try {
+                const fileNameInFirebase = photo.url; 
+                
+                if (fileNameInFirebase) {
+                    await deleteFileByName(fileNameInFirebase); 
+                }
+                return { success: true, url: photo.url };
+            } catch (firebaseError) {
+                console.error("Error al eliminar foto de Firebase:", photo.url, firebaseError.message);
+                return { success: false, url: photo.url, error: firebaseError.message };
+            }
+        });
+        const firebaseDeletionResults = await Promise.all(firebaseDeletePromises);
+
+        const failedFirebaseDeletions = firebaseDeletionResults.filter(r => !r.success);
+        if (failedFirebaseDeletions.length > 0) {
+            console.warn("Algunas imágenes no se pudieron eliminar de Firebase Storage:", failedFirebaseDeletions);
+        }
+        
+        // --- ¡NUEVO: ELIMINAR SUBCANCHAS ASOCIADAS PRIMERO! ---
+        await client.query("DELETE FROM subcourts WHERE court_id = $1", [id]);
+
+        // Eliminar las fotos de la tabla 'photos' en la base de datos
+        await client.query("DELETE FROM photos WHERE court_id = $1", [id]);
+
+
+        // Eliminar la cancha principal de la tabla 'courts'
+        const deleteCourtResult = await client.query("DELETE FROM courts WHERE id = $1", [id]);
+
+        if (deleteCourtResult.rowCount === 0) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ error: "Cancha no encontrada después de verificar." });
+        }
+
+        await client.query('COMMIT'); 
+        res.status(200).json({
+            success: true,
+            message: "Cancha y sus datos asociados eliminados exitosamente.",
+            firebase_deletion_summary: failedFirebaseDeletions.length > 0 ? "Algunas imágenes no se eliminaron de Firebase." : "Todas las imágenes asociadas se eliminaron de Firebase.",
+            failed_firebase_deletions: failedFirebaseDeletions
+        });
+    } catch (error) {
+        await client.query('ROLLBACK'); 
+        console.error("Error al eliminar la cancha:", error.message);
+        res.status(500).json({ error: "Error al eliminar la cancha: " + error.message });
+    } finally {
+        client.release(); 
     }
-
-    await client.query('COMMIT');
-    res.status(200).json({ success: true, message: "Cancha y sus datos asociados eliminados exitosamente." });
-  } catch (error) {
-    await client.query('ROLLBACK');
-    console.error("Error al eliminar la cancha:", error.message);
-    res.status(500).json({ error: "Error al eliminar la cancha: " + error.message });
-  } finally {
-    client.release();
-  }
 };
 
 const deleteSubcourt = async (req, res) => {
