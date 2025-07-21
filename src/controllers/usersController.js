@@ -1077,6 +1077,76 @@ const deleteSubcourt = async (req, res) => {
   }
 };
 
+const createReservation = async (req, res) => {
+  const { subcourtId } = req.params;
+    const {
+        client_id, // Usamos client_id en lugar de user_id
+        reservation_date,
+        reservation_time,
+        duration,
+        end_time,
+        state,
+        price_reservation,
+        transfer
+    } = req.body;
+
+    console.log(req.body)
+    try {
+        const reservationId = v4();
+        const now = new Date();
+
+        const result = await pool.query(
+            `INSERT INTO reservations (
+                id,
+                client_id,
+                subcourt_id,
+                reservation_date,
+                reservation_time,
+                duration,
+                end_time,
+                state,
+                price_reservation,
+                transfer,
+                created_at,
+                updated_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            RETURNING id, subcourt_id, reservation_date, reservation_time`,
+            [
+                reservationId,
+                client_id,
+                subcourtId,
+                reservation_date,
+                reservation_time,
+                duration,
+                end_time,
+                state,
+                price_reservation,
+                transfer,
+                now,
+                now
+            ]
+        );
+
+        res.status(201).json({
+            success: true,
+            message: "Reserva creada exitosamente.",
+            reservation: result.rows[0]
+        });
+
+    } catch (error) {
+        console.error("Error al crear la reserva:", error.message);
+        if (error.code === '23503') {
+            return res.status(400).json({
+                error: "El subcourt_id o client_id proporcionado no existe."
+            });
+        }
+        res.status(500).json({
+            error: "Error interno del servidor al crear la reserva.",
+            details: error.message
+        });
+    }
+};
+
 module.exports = {
   getUsers,
   register,
@@ -1096,5 +1166,6 @@ module.exports = {
   getCourtById,
   updateCourt,
   deleteCourt,
-  deleteSubcourt
+  deleteSubcourt,
+  createReservation
 };
