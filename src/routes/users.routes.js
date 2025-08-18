@@ -1,5 +1,6 @@
 const { Router } = require("express");
 const { 
+logout,
 getUsers,
 register,
 login,
@@ -9,7 +10,7 @@ deleteUser,
 uploadImages,
 getImages,
 deleteImages,
-getPosts,       
+getPosts,          
 getPostById,    
 updatePost,
 deletePost,
@@ -19,6 +20,7 @@ getCourtById,
 updateCourt,
 deleteCourt,
 deleteSubcourt,
+getServices,
 createReservation
 }=require("../controllers/usersController")
 const {
@@ -34,7 +36,7 @@ const upload = multer({ dest: 'uploads/' });
 const router = Router();
 
 router.get('/users',getUsers);
-router.post('/register',registerValidator,validationMiddleware,register);
+router.post('/register',registerValidator,register);
 router.post('/login',loginValidation,validationMiddleware,login);
 router.get(
     '/admin/dashboard',
@@ -44,6 +46,7 @@ router.get(
         res.status(200).json({ message: 'Bienvenido al panel de Superadmin!' });
     }
 );
+router.get('/logout',logout);
 router.put('/user/:id',userAuth, updateValidator,validationMiddleware,updateUser);
 router.delete('/user/:id',userAuth,deleteUser);
 router.post('/upload/:id',upload.array('photo', 5),uploadImages);
@@ -55,6 +58,7 @@ router.get('/posts/:id', getPostById);
 router.put('/posts/:id', verifyToken, upload.array('images', 5), updatePost); 
 router.delete('/posts/:id', verifyToken, deletePost); 
 router.get('/courts', getCourts);
+router.get('/services', getServices);
 router.get('/courts/:id', getCourtById);
 router.put('/courts/:id', userAuth, upload.array('newPhotos', 5), updateCourt);
 router.delete('/courts/:id', userAuth, deleteCourt);

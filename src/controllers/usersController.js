@@ -215,6 +215,20 @@ const deleteUser = async (req, res) => {
   }
 };
 
+const logout =async(req, res) => {
+    try {
+        return res.status(200).clearCookie('token',{httpOnly:true}).json({
+            success: true,
+            message: "Logged out succefully ",
+        })
+    } catch (error) {
+        console.log(error.message)
+        return res.status(500).json({
+            error:error.message
+        })
+    }
+}
+
 const uploadImages = async (req, res) => {
   const { id } = req.params;
   const { description } = req.body;
@@ -759,11 +773,12 @@ const getCourts = async (req, res) => {
           c.phone,
           c.court_type,
           c.is_public,
-          c.price AS default_price,
+          c.price,
           c.description,
           c.state,
           c.created_at,
           c.updated_at,
+          c.is_court,
           COALESCE(json_agg(DISTINCT jsonb_build_object('id', sc.id, 'name', sc.name, 'state', sc.state)) FILTER (WHERE sc.id IS NOT NULL), '[]') AS subcourts,
           COALESCE(json_agg(DISTINCT jsonb_build_object('id', cp.id, 'day_of_week', cp.day_of_week, 'price', cp.price)) FILTER (WHERE cp.id IS NOT NULL), '[]') AS court_prices,
           COALESCE(json_agg(DISTINCT jsonb_build_object('id', cs.id, 'platform', cs.platform, 'url', cs.url)) FILTER (WHERE cs.id IS NOT NULL), '[]') AS court_socials,
@@ -792,6 +807,47 @@ const getCourts = async (req, res) => {
   }
 };
 
+
+const getServices = async (req,res) => {
+      const { id } = req.params;
+
+      try {
+    const result = await pool.query(`
+      SELECT
+          c.id AS court_id,
+          c.name AS court_name,
+          c.user_id,
+          u.name AS owner_name,
+          c.address,
+          c.city,
+          c.phone,
+          c.court_type,
+          c.is_public,
+          c.price AS default_price,
+          c.description,
+          c.state,
+          c.created_at,
+          c.updated_at,
+          c.is_court,
+          COALESCE(json_agg(DISTINCT jsonb_build_object('id', p.id, 'url', p.url)) FILTER (WHERE p.id IS NOT NULL), '[]') AS photos
+      FROM
+          courts c
+      LEFT JOIN
+          photos p ON c.id = p.court_id
+      WHERE
+          c.id = $1
+    `, [id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, message: "Cancha no encontrada." });
+    }
+    res.status(200).json({ success: true, court: result.rows[0] });
+  } catch (error) {
+    console.error("Error al obtener cancha por ID:", error.message);
+    res.status(500).json({ error: "Error al obtener cancha: " + error.message });
+  }
+
+}
 const getCourtById = async (req, res) => {
   const { id } = req.params; // courtId
 
@@ -1167,5 +1223,7 @@ module.exports = {
   updateCourt,
   deleteCourt,
   deleteSubcourt,
-  createReservation
+  createReservation,
+  logout,
+  getServices
 };
