@@ -93,6 +93,49 @@ const register = async (req, res) => {
   }
 };
 
+const registerServices = async (req,res) => {
+  const {
+    courtName, 
+    courtAddress,
+    courtCity,
+    courtPhone,
+    price,
+    description,
+    state
+  } = req.body;
+
+ const { userId } = req.params;
+
+ console.log(req.body);
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const serviceId = v4();
+    const now = new Date();
+
+    // Insertar solo en la tabla 'courts'
+    await client.query(
+      "insert into courts(id, name, address, city, phone, price, description, created_at, updated_at, state, user_id, is_court) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
+      [serviceId, courtName, courtAddress, courtCity, courtPhone, price, description, now, now, state, userId, false]
+    );
+
+    await client.query('COMMIT');
+        return res.status(201).json({
+      success: true,
+      message: "El registro del servicio fue exitoso y todos los datos fueron guardados.",
+    });
+
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error("Error en el registro del servicio (transacción revertida):", error.message);
+    throw new Error("No se pudo completar el registro del servicio.");
+  } finally {
+    client.release();
+  }
+};
+
 const login = async (req, res) => {
   let user = req.user;
   console.log(user);
@@ -1225,5 +1268,6 @@ module.exports = {
   deleteSubcourt,
   createReservation,
   logout,
-  getServices
+  getServices,
+  registerServices
 };

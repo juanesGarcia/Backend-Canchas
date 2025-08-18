@@ -21,7 +21,8 @@ updateCourt,
 deleteCourt,
 deleteSubcourt,
 getServices,
-createReservation
+createReservation,
+registerServices
 }=require("../controllers/usersController")
 const {
     registerValidator, 
@@ -37,6 +38,7 @@ const router = Router();
 
 router.get('/users',getUsers);
 router.post('/register',registerValidator,register);
+router.post('/registerServices/:userId',registerServices);
 router.post('/login',loginValidation,validationMiddleware,login);
 router.get(
     '/admin/dashboard',
