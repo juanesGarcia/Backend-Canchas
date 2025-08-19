@@ -943,6 +943,53 @@ const getCourtById = async (req, res) => {
   }
 };
 
+
+const getSubCourts = async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const result = await pool.query(`
+      SELECT
+          c.id AS court_id,
+          c.name AS court_name,
+          c.user_id,
+          u.name AS owner_name,
+          c.address,
+          c.city,
+          c.phone,
+          c.court_type,
+          c.is_public,
+          c.price AS default_price,
+          c.description,
+          c.state,
+          c.created_at,
+          c.updated_at,
+          COALESCE(json_agg(DISTINCT jsonb_build_object('id', sc.id, 'name', sc.name, 'state', sc.state)) FILTER (WHERE sc.id IS NOT NULL), '[]') AS subcourts,
+          COALESCE(json_agg(DISTINCT jsonb_build_object('id', p.id, 'url', p.url)) FILTER (WHERE p.id IS NOT NULL), '[]') AS photos
+      FROM
+          courts c
+      LEFT JOIN
+          users u ON c.user_id = u.id
+      LEFT JOIN
+          subcourts sc ON c.id = sc.court_id
+      LEFT JOIN
+          photos p ON c.id = p.court_id
+      WHERE
+          u.id = $1
+      GROUP BY
+          c.id, u.name;
+    `, [id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, message: "Cancha no encontrada." });
+    }
+    res.status(200).json({ success: true, court: result.rows[0] });
+  } catch (error) {
+    console.error("Error al obtener cancha por ID:", error.message);
+    res.status(500).json({ error: "Error al obtener cancha: " + error.message });
+  }
+};
+
 const updateCourt = async (req, res) => {
   const { id } = req.params;
   const {
@@ -1269,5 +1316,6 @@ module.exports = {
   createReservation,
   logout,
   getServices,
-  registerServices
+  registerServices,
+  getSubCourts
 };
