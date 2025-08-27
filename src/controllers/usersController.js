@@ -893,10 +893,11 @@ const getServices = async (req,res) => {
 }
 const getCourtById = async (req, res) => {
   const { id } = req.params; // courtId
+  console.log(id);
 
   try {
     const result = await pool.query(`
-      SELECT
+         SELECT
           c.id AS court_id,
           c.name AS court_name,
           c.user_id,
@@ -906,11 +907,12 @@ const getCourtById = async (req, res) => {
           c.phone,
           c.court_type,
           c.is_public,
-          c.price AS default_price,
+          c.price,
           c.description,
           c.state,
           c.created_at,
           c.updated_at,
+          c.is_court,
           COALESCE(json_agg(DISTINCT jsonb_build_object('id', sc.id, 'name', sc.name, 'state', sc.state)) FILTER (WHERE sc.id IS NOT NULL), '[]') AS subcourts,
           COALESCE(json_agg(DISTINCT jsonb_build_object('id', cp.id, 'day_of_week', cp.day_of_week, 'price', cp.price)) FILTER (WHERE cp.id IS NOT NULL), '[]') AS court_prices,
           COALESCE(json_agg(DISTINCT jsonb_build_object('id', cs.id, 'platform', cs.platform, 'url', cs.url)) FILTER (WHERE cs.id IS NOT NULL), '[]') AS court_socials,
@@ -927,13 +929,14 @@ const getCourtById = async (req, res) => {
           court_socials cs ON c.id = cs.court_id
       LEFT JOIN
           photos p ON c.id = p.court_id
-      WHERE
-          c.id = $1
+      WHERE 
+        u.id=$1
       GROUP BY
-          c.id, u.name;
+          c.id, u.name
+      ORDER BY
+          c.created_at DESC;
     `, [id]);
-
-    if (result.rows.length === 0) {
+        if (result.rows.length === 0) {
       return res.status(404).json({ success: false, message: "Cancha no encontrada." });
     }
     res.status(200).json({ success: true, court: result.rows[0] });
@@ -943,50 +946,29 @@ const getCourtById = async (req, res) => {
   }
 };
 
-
 const getSubCourts = async (req, res) => {
   const { id } = req.params;
+  console.log(id);
 
   try {
     const result = await pool.query(`
-      SELECT
-          c.id AS court_id,
-          c.name AS court_name,
-          c.user_id,
-          u.name AS owner_name,
-          c.address,
-          c.city,
-          c.phone,
-          c.court_type,
-          c.is_public,
-          c.price AS default_price,
-          c.description,
-          c.state,
-          c.created_at,
-          c.updated_at,
-          COALESCE(json_agg(DISTINCT jsonb_build_object('id', sc.id, 'name', sc.name, 'state', sc.state)) FILTER (WHERE sc.id IS NOT NULL), '[]') AS subcourts,
-          COALESCE(json_agg(DISTINCT jsonb_build_object('id', p.id, 'url', p.url)) FILTER (WHERE p.id IS NOT NULL), '[]') AS photos
-      FROM
-          courts c
-      LEFT JOIN
-          users u ON c.user_id = u.id
-      LEFT JOIN
-          subcourts sc ON c.id = sc.court_id
-      LEFT JOIN
-          photos p ON c.id = p.court_id
-      WHERE
-          u.id = $1
-      GROUP BY
-          c.id, u.name;
+SELECT
+  sc.id AS subcourt_id,
+  sc.name AS subcourt_name,
+  sc.state
+FROM
+  subcourts sc
+JOIN
+  courts c ON sc.court_id = c.id
+WHERE
+  c.user_id = $1;
     `, [id]);
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ success: false, message: "Cancha no encontrada." });
-    }
-    res.status(200).json({ success: true, court: result.rows[0] });
+const subcourts = result.rows; // El resultado de la consulta es un array de filas.
+res.status(200).json({ success: true, subcourts: subcourts });
   } catch (error) {
-    console.error("Error al obtener cancha por ID:", error.message);
-    res.status(500).json({ error: "Error al obtener cancha: " + error.message });
+    console.error("Error al obtener subcanchas:", error.message);
+    res.status(500).json({ error: "Error al obtener subcanchas: " + error.message });
   }
 };
 
@@ -1223,28 +1205,87 @@ const deleteSubcourt = async (req, res) => {
   }
 };
 
+
 const createReservation = async (req, res) => {
-  const { subcourtId } = req.params;
+    const { subcourtId } = req.params;
     const {
-        client_id, // Usamos client_id en lugar de user_id
+        user_id,
         reservation_date,
         reservation_time,
         duration,
         end_time,
         state,
         price_reservation,
-        transfer
+        transfer,
+        phone,
+        user_name
     } = req.body;
 
-    console.log(req.body)
+    console.log(req.body);
+
     try {
+        // Validación de precio basada en la lógica de la respuesta anterior
+        const dayOfWeek = new Date(reservation_date).toLocaleDateString('es-ES', { weekday: 'long' }).toLowerCase();
+
+        // Paso 1: Obtener el court_id a partir del subcourt_id
+        const subcourtResult = await pool.query('SELECT court_id FROM subcourts WHERE id = $1', [subcourtId]);
+
+        if (subcourtResult.rows.length === 0) {
+            return res.status(404).json({ error: "Subcancha no encontrada." });
+        }
+        const courtId = subcourtResult.rows[0].court_id;
+        console.log(courtId);
+
+        // Paso 2: Buscar el precio en la tabla court_prices
+        const priceResult = await pool.query(
+            `SELECT price FROM court_prices WHERE court_id = $1 AND day_of_week = $2`,
+            [courtId, dayOfWeek]
+        );
+
+        if (priceResult.rows.length === 0) {
+            return res.status(404).json({
+                error: `No se encontró precio para la cancha ${courtId} en el día ${dayOfWeek}.`
+            });
+        }
+
+        // --- LÓGICA DE VALIDACIÓN DE SOLAPAMIENTO DE RESERVAS ---
+        
+        // 1. Convertir la hora de inicio y fin a objetos de fecha para compararlos
+        const startDateTime = new Date(`${reservation_date}T${reservation_time}:00`);
+        const endDateTime = new Date(startDateTime.getTime() + duration * 60000); // Suma la duración en milisegundos
+
+        // 2. Consultar la base de datos para buscar reservas existentes que se solapen
+        const existingReservation = await pool.query(
+            `SELECT * FROM reservations 
+             WHERE subcourt_id = $1
+             AND reservation_date = $2
+             AND (
+                 (reservation_time < $3 AND end_time > $4) OR -- Reserva existente que empieza antes y termina después
+                 (reservation_time >= $3 AND reservation_time < $4) OR -- Reserva existente que empieza en medio
+                 (end_time > $3 AND end_time <= $4) -- Reserva existente que termina en medio
+             )`,
+            [
+                subcourtId,
+                reservation_date,
+                endDateTime.toTimeString().split(' ')[0].substring(0, 5), // Hora de fin
+                startDateTime.toTimeString().split(' ')[0].substring(0, 5) // Hora de inicio
+            ]
+        );
+
+
+        console.log(existingReservation)
+        if (existingReservation.rowCount > 0) {
+            return res.status(409).json({ error: "La subcancha ya está reservada en este lapso de tiempo." });
+        }
+
+        // 3. Si no hay solapamiento, proceder con la inserción
         const reservationId = v4();
         const now = new Date();
 
         const result = await pool.query(
             `INSERT INTO reservations (
                 id,
-                client_id,
+                user_id,
                 subcourt_id,
                 reservation_date,
                 reservation_time,
@@ -1254,22 +1295,26 @@ const createReservation = async (req, res) => {
                 price_reservation,
                 transfer,
                 created_at,
-                updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                updated_at,
+                user_name,
+                phone
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
             RETURNING id, subcourt_id, reservation_date, reservation_time`,
             [
                 reservationId,
-                client_id,
+                user_id,
                 subcourtId,
                 reservation_date,
                 reservation_time,
                 duration,
-                end_time,
+                end_time, // ¡ATENCIÓN! La variable end_time del body no se usa en la validación, necesitas calcularla en el frontend o aquí. Si quieres usarla, asegúrate de que sea precisa.
                 state,
                 price_reservation,
                 transfer,
                 now,
-                now
+                now,
+                user_name,
+                phone
             ]
         );
 
@@ -1292,6 +1337,30 @@ const createReservation = async (req, res) => {
         });
     }
 };
+const getReservationsBySubcourt = async (req, res) => {
+    const { subcourtId } = req.params;
+
+    try {
+        const result = await pool.query(
+            `SELECT 
+                reservation_date,
+                reservation_time,
+                duration
+            FROM reservations 
+            WHERE subcourt_id = $1 AND state = true`,
+            [subcourtId]
+        );
+
+        res.status(200).json(result.rows);
+    } catch (error) {
+        console.error("Error al obtener las reservas:", error.message);
+        res.status(500).json({
+            error: "Error interno del servidor al obtener las reservas.",
+            details: error.message
+        });
+    }
+};
+
 
 module.exports = {
   getUsers,
@@ -1317,5 +1386,6 @@ module.exports = {
   logout,
   getServices,
   registerServices,
-  getSubCourts
+  getSubCourts,
+  getReservationsBySubcourt
 };
