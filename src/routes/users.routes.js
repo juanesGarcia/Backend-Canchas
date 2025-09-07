@@ -24,7 +24,8 @@ getServices,
 createReservation,
 registerServices,
 getSubCourts,
-getReservationsBySubcourt
+getReservationsBySubcourt,
+createSubcourt
 }=require("../controllers/usersController")
 const {
     registerValidator, 
@@ -68,7 +69,7 @@ router.get('/subCourts/:id', getSubCourts);
 router.get('/getReservations/:subcourtId', getReservationsBySubcourt);
 router.put('/courts/:id', userAuth, upload.array('newPhotos', 5), updateCourt);
 router.delete('/courts/:id', userAuth, deleteCourt);
-router.delete('/subcourts/:subcourtId', userAuth, deleteSubcourt);
+router.delete('/subcourts/:subcourtId', deleteSubcourt);
 router.post('/reservations/:subcourtId', createReservation);
-
+router.post('/subcourt/:id', createSubcourt);
 module.exports = router;

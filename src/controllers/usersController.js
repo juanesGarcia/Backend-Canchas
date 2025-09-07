@@ -21,6 +21,10 @@ const getUsers = async (req, res) => {
   }
 };
 
+const { v4 } = require("uuid");
+const { hash } = require("bcrypt");
+const pool = require("../db/config"); // Asegúrate de que esta ruta sea correcta
+
 const register = async (req, res) => {
   const {
     email,
@@ -52,17 +56,27 @@ const register = async (req, res) => {
 
     await client.query(
       "insert into users(id,name,email,password,role,phone,state) values ($1, $2,$3,$4,$5,$6,$7) ",
-      [user_id, name, email, hashedPassword, role, phone,state]
+      [user_id, name, email, hashedPassword, role, phone, state]
     );
 
     const courtId = v4();
     const now = new Date();
 
     await client.query(
-      "insert into courts(id, name, address, city, phone, court_type, is_public,price, description, created_at, updated_at, state, user_id) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,$12,$13)",
-      [courtId, courtName, courtAddress, courtCity, courtPhone, court_type, is_public,price, description, now, now, state,user_id]
+      "insert into courts(id, name, address, city, phone, court_type, is_public, description, created_at, updated_at, state, user_id) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
+      [courtId, courtName, courtAddress, courtCity, courtPhone, court_type, is_public, description, now, now, state, user_id]
     );
 
+    // ✅ NUEVO: Lógica para insertar los precios por día de la semana
+    const daysOfWeek = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+
+    for (const day of daysOfWeek) {
+      await client.query(
+        "INSERT INTO court_price (court_id, day_of_week, price, created_at, updated_at) VALUES ($1, $2, $3, $4, $5)",
+        [courtId, day, price, now, now]
+      );
+    }
+    
     if (subcourts && Array.isArray(subcourts) && subcourts.length > 0) {
       for (const subcourt of subcourts) {
         const subcourtId = v4();
@@ -913,24 +927,15 @@ const getCourtById = async (req, res) => {
           c.created_at,
           c.updated_at,
           c.is_court,
-          COALESCE(json_agg(DISTINCT jsonb_build_object('id', sc.id, 'name', sc.name, 'state', sc.state)) FILTER (WHERE sc.id IS NOT NULL), '[]') AS subcourts,
-          COALESCE(json_agg(DISTINCT jsonb_build_object('id', cp.id, 'day_of_week', cp.day_of_week, 'price', cp.price)) FILTER (WHERE cp.id IS NOT NULL), '[]') AS court_prices,
-          COALESCE(json_agg(DISTINCT jsonb_build_object('id', cs.id, 'platform', cs.platform, 'url', cs.url)) FILTER (WHERE cs.id IS NOT NULL), '[]') AS court_socials,
           COALESCE(json_agg(DISTINCT jsonb_build_object('id', p.id, 'url', p.url)) FILTER (WHERE p.id IS NOT NULL), '[]') AS photos
       FROM
           courts c
       LEFT JOIN
           users u ON c.user_id = u.id
       LEFT JOIN
-          subcourts sc ON c.id = sc.court_id
-      LEFT JOIN
-          court_prices cp ON c.id = cp.court_id
-      LEFT JOIN
-          court_socials cs ON c.id = cs.court_id
-      LEFT JOIN
           photos p ON c.id = p.court_id
       WHERE 
-        u.id=$1
+        c.id=$1
       GROUP BY
           c.id, u.name
       ORDER BY
@@ -955,7 +960,8 @@ const getSubCourts = async (req, res) => {
 SELECT
   sc.id AS subcourt_id,
   sc.name AS subcourt_name,
-  sc.state
+  sc.state,
+  c.id
 FROM
   subcourts sc
 JOIN
@@ -971,6 +977,60 @@ res.status(200).json({ success: true, subcourts: subcourts });
     res.status(500).json({ error: "Error al obtener subcanchas: " + error.message });
   }
 };
+
+const createSubcourt = async (req, res) => {
+  console.log(req.body);
+
+  // Se obtiene el court_id de los parámetros de la URL (req.params)
+  const { id } = req.params;
+  const { name, state = true } = req.body;  
+
+  // Validación básica
+  if (!name) {
+    return res.status(400).json({ error: "El nombre de la subcancha es obligatorio." });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // 1. Verificar si la cancha existe y pertenece al usuario autenticado
+    const courtResult = await client.query(
+      "SELECT id FROM courts WHERE user_id = $1",
+      [id]
+    );
+
+    if (courtResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: "Cancha no encontrada." });
+    }
+
+
+
+    // 2. Insertar la nueva subcancha
+    const subcourtId = v4();
+    const now = new Date();
+    await client.query(
+      "INSERT INTO subcourts (id, court_id, name, created_at, updated_at, state) VALUES ($1, $2, $3, $4, $5, $6)",
+      [subcourtId,courtResult.rows[0].id, name, now, now, state]
+    );
+
+    await client.query('COMMIT');
+    return res.status(201).json({
+      success: true,
+      message: "Subcancha creada exitosamente.",
+      subcourt: subcourtId,
+    });
+
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error("Error al crear la subcancha:", error.message);
+    return res.status(500).json({ error: "Error al crear la subcancha: " + error.message });
+  } finally {
+    client.release();
+  }
+};
+
 
 const updateCourt = async (req, res) => {
   const { id } = req.params;
@@ -1157,12 +1217,11 @@ const deleteCourt = async (req, res) => {
 
 const deleteSubcourt = async (req, res) => {
   const { subcourtId } = req.params;
-  const userId = req.user.id;
+  
 
+  console.log(subcourtId)
   const client = await pool.connect();
   try {
-    await client.query('BEGIN');
-    await client.query(`SET app.current_user_id = '${userId}';`);
 
     const subcourtResult = await client.query(
       "SELECT court_id FROM subcourts WHERE id = $1",
@@ -1181,11 +1240,6 @@ const deleteSubcourt = async (req, res) => {
       [courtId]
     );
 
-    const courtOwnerId = courtOwnerResult.rows[0].user_id;
-    if (userId !== courtOwnerId && req.user.role !== 'admin') {
-      await client.query('ROLLBACK');
-      return res.status(403).json({ error: "No tienes permiso para eliminar esta subcancha." });
-    }
 
     const deleteResult = await client.query("DELETE FROM subcourts WHERE id = $1", [subcourtId]);
 
@@ -1387,5 +1441,6 @@ module.exports = {
   getServices,
   registerServices,
   getSubCourts,
-  getReservationsBySubcourt
+  getReservationsBySubcourt,
+  createSubcourt
 };
