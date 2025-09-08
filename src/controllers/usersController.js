@@ -21,9 +21,8 @@ const getUsers = async (req, res) => {
   }
 };
 
-const { v4 } = require("uuid");
-const { hash } = require("bcrypt");
-const pool = require("../db/config"); // Asegúrate de que esta ruta sea correcta
+
+// Asegúrate de que esta ruta sea correcta
 
 const register = async (req, res) => {
   const {
@@ -67,15 +66,9 @@ const register = async (req, res) => {
       [courtId, courtName, courtAddress, courtCity, courtPhone, court_type, is_public, description, now, now, state, user_id]
     );
 
+  
     // ✅ NUEVO: Lógica para insertar los precios por día de la semana
-    const daysOfWeek = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
-    for (const day of daysOfWeek) {
-      await client.query(
-        "INSERT INTO court_price (court_id, day_of_week, price, created_at, updated_at) VALUES ($1, $2, $3, $4, $5)",
-        [courtId, day, price, now, now]
-      );
-    }
     
     if (subcourts && Array.isArray(subcourts) && subcourts.length > 0) {
       for (const subcourt of subcourts) {
@@ -86,6 +79,16 @@ const register = async (req, res) => {
           "insert into subcourts(id, court_id, name, created_at, updated_at, state) values ($1, $2, $3, $4, $5, $6)",
           [subcourtId, courtId, subcourtName, now, now, subcourtState]
         );
+
+            const daysOfWeek = ["lunes", "martes", "miercoles", "jueves", "viernes", "sábado", "domingo"];
+
+    for (const day of daysOfWeek) {
+       const IdCourtPrice = v4();
+      await client.query(
+        "INSERT INTO subcourt_prices (subcourt_price_id, subcourt_id,day_of_week,price,updated_at ) VALUES ($1, $2, $3, $4, $5)",
+        [IdCourtPrice,subcourtId, day, price, now]
+      );
+    }
       }
     }
 
@@ -1010,16 +1013,20 @@ const createSubcourt = async (req, res) => {
     // 2. Insertar la nueva subcancha
     const subcourtId = v4();
     const now = new Date();
-    await client.query(
-      "INSERT INTO subcourts (id, court_id, name, created_at, updated_at, state) VALUES ($1, $2, $3, $4, $5, $6)",
+    const result = await client.query(
+      "INSERT INTO subcourts (id,court_id, name, created_at, updated_at, state) VALUES ($1, $2, $3, $4, $5,$6) RETURNING *",
       [subcourtId,courtResult.rows[0].id, name, now, now, state]
     );
+
+    await client.query('COMMIT');
+
+     const newSubcourt = result.rows[0];
 
     await client.query('COMMIT');
     return res.status(201).json({
       success: true,
       message: "Subcancha creada exitosamente.",
-      subcourt: subcourtId,
+      subcourt: newSubcourt,
     });
 
   } catch (error) {
@@ -1287,18 +1294,18 @@ const createReservation = async (req, res) => {
         if (subcourtResult.rows.length === 0) {
             return res.status(404).json({ error: "Subcancha no encontrada." });
         }
-        const courtId = subcourtResult.rows[0].court_id;
-        console.log(courtId);
-
+   
+console.log(subcourtId);
+console.log(dayOfWeek);
         // Paso 2: Buscar el precio en la tabla court_prices
         const priceResult = await pool.query(
-            `SELECT price FROM court_prices WHERE court_id = $1 AND day_of_week = $2`,
-            [courtId, dayOfWeek]
+            `SELECT price FROM subcourt_prices WHERE subcourt_id= $1 AND day_of_week = $2`,
+            [subcourtId, dayOfWeek]
         );
 
         if (priceResult.rows.length === 0) {
             return res.status(404).json({
-                error: `No se encontró precio para la cancha ${courtId} en el día ${dayOfWeek}.`
+                error: `No se encontró precio para la cancha ${subcourtId} en el día ${dayOfWeek}.`
             });
         }
 
