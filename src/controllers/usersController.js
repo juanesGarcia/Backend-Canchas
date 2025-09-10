@@ -100,7 +100,7 @@ const register = async (req, res) => {
     });
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error("Error en el registro (transacción revertida):", error.message);
+    console.error("Error x`en el registro (transacción revertida):", error.message);
     return res.status(500).json({
       error: error.message,
       message: "No se pudo completar el registro debido a un error. Ningún dato fue guardado."
@@ -840,7 +840,6 @@ const getCourts = async (req, res) => {
           c.updated_at,
           c.is_court,
           COALESCE(json_agg(DISTINCT jsonb_build_object('id', sc.id, 'name', sc.name, 'state', sc.state)) FILTER (WHERE sc.id IS NOT NULL), '[]') AS subcourts,
-          COALESCE(json_agg(DISTINCT jsonb_build_object('id', cp.id, 'day_of_week', cp.day_of_week, 'price', cp.price)) FILTER (WHERE cp.id IS NOT NULL), '[]') AS court_prices,
           COALESCE(json_agg(DISTINCT jsonb_build_object('id', cs.id, 'platform', cs.platform, 'url', cs.url)) FILTER (WHERE cs.id IS NOT NULL), '[]') AS court_socials,
           COALESCE(json_agg(DISTINCT jsonb_build_object('id', p.id, 'url', p.url)) FILTER (WHERE p.id IS NOT NULL), '[]') AS photos
       FROM
@@ -850,9 +849,7 @@ const getCourts = async (req, res) => {
       LEFT JOIN
           subcourts sc ON c.id = sc.court_id
       LEFT JOIN
-          court_prices cp ON c.id = cp.court_id
-      LEFT JOIN
-          court_socials cs ON c.id = cs.court_id
+          court_socials cs ON c.id = sc.court_id
       LEFT JOIN
           photos p ON c.id = p.court_id
       GROUP BY
