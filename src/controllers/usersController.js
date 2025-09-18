@@ -21,6 +21,9 @@ const getUsers = async (req, res) => {
   }
 };
 
+
+// Asegúrate de que esta ruta sea correcta
+
 const register = async (req, res) => {
   const {
     email,
@@ -52,17 +55,21 @@ const register = async (req, res) => {
 
     await client.query(
       "insert into users(id,name,email,password,role,phone,state) values ($1, $2,$3,$4,$5,$6,$7) ",
-      [user_id, name, email, hashedPassword, role, phone,state]
+      [user_id, name, email, hashedPassword, role, phone, state]
     );
 
     const courtId = v4();
     const now = new Date();
 
     await client.query(
-      "insert into courts(id, name, address, city, phone, court_type, is_public,price, description, created_at, updated_at, state, user_id) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,$12,$13)",
-      [courtId, courtName, courtAddress, courtCity, courtPhone, court_type, is_public,price, description, now, now, state,user_id]
+      "insert into courts(id, name, address, city, phone, court_type, is_public, description, created_at, updated_at, state, user_id) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
+      [courtId, courtName, courtAddress, courtCity, courtPhone, court_type, is_public, description, now, now, state, user_id]
     );
 
+  
+    // ✅ NUEVO: Lógica para insertar los precios por día de la semana
+
+    
     if (subcourts && Array.isArray(subcourts) && subcourts.length > 0) {
       for (const subcourt of subcourts) {
         const subcourtId = v4();
@@ -72,6 +79,16 @@ const register = async (req, res) => {
           "insert into subcourts(id, court_id, name, created_at, updated_at, state) values ($1, $2, $3, $4, $5, $6)",
           [subcourtId, courtId, subcourtName, now, now, subcourtState]
         );
+
+            const daysOfWeek = ["lunes", "martes", "miercoles", "jueves", "viernes", "sábado", "domingo"];
+
+    for (const day of daysOfWeek) {
+       const IdCourtPrice = v4();
+      await client.query(
+        "INSERT INTO subcourt_prices (subcourt_price_id, subcourt_id,day_of_week,price,updated_at ) VALUES ($1, $2, $3, $4, $5)",
+        [IdCourtPrice,subcourtId, day, price, now]
+      );
+    }
       }
     }
 
@@ -83,7 +100,7 @@ const register = async (req, res) => {
     });
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error("Error en el registro (transacción revertida):", error.message);
+    console.error("Error x`en el registro (transacción revertida):", error.message);
     return res.status(500).json({
       error: error.message,
       message: "No se pudo completar el registro debido a un error. Ningún dato fue guardado."
@@ -192,37 +209,34 @@ const verifyToken = (req, res, next) => {
   }
 };
 
+// En tu backend (Node.js)
 const updateUser = async (req, res) => {
-  const { id } = req.params;
-  const { password, name } = req.body;
-  const userId = req.user.id; // ID del usuario autenticado
+    const { id } = req.params;
+    // ✅ CORRECCIÓN: Accede al objeto 'userData' y luego desestructura 'name' y 'password'.
+    const { password, name } = req.body; 
 
-  console.log(userId);
-  console.log(name);
+    console.log(req.body); // Esto mostrará { userData: { name: '...', password: '...' } }
+    console.log(name);
 
-  try {
-    if (userId !== id) {
-      return res
-        .status(401)
-        .json({ message: "No tienes permiso para editar este perfil." });
+    try {
+ 
+        console.log(password);
+        const hashedPassword = await hash(password, 10);
+
+        await pool.query(
+            "UPDATE users SET name = $1, password = $2 WHERE id = $3",
+            [name, hashedPassword, id]
+        );
+        res.json({
+            success: true,
+            message: "Perfil actualizado correctamente.",
+        });
+    } catch (error) {
+        console.log(error.message);
+        return res.status(500).json({
+            error: error.message,
+        });
     }
-    console.log(password);
-    const hashedPassword = await hash(password, 10);
-
-    await pool.query(
-      "UPDATE users SET name = $1, password = $2 WHERE id = $3",
-      [name, hashedPassword, id]
-    );
-    res.json({
-      success: true,
-      message: "Perfil actualizado correctamente.",
-    });
-  } catch (error) {
-    console.log(error.message);
-    return res.status(500).json({
-      error: error.message,
-    });
-  }
 };
 
 const deleteUser = async (req, res) => {
@@ -823,7 +837,6 @@ const getCourts = async (req, res) => {
           c.updated_at,
           c.is_court,
           COALESCE(json_agg(DISTINCT jsonb_build_object('id', sc.id, 'name', sc.name, 'state', sc.state)) FILTER (WHERE sc.id IS NOT NULL), '[]') AS subcourts,
-          COALESCE(json_agg(DISTINCT jsonb_build_object('id', cp.id, 'day_of_week', cp.day_of_week, 'price', cp.price)) FILTER (WHERE cp.id IS NOT NULL), '[]') AS court_prices,
           COALESCE(json_agg(DISTINCT jsonb_build_object('id', cs.id, 'platform', cs.platform, 'url', cs.url)) FILTER (WHERE cs.id IS NOT NULL), '[]') AS court_socials,
           COALESCE(json_agg(DISTINCT jsonb_build_object('id', p.id, 'url', p.url)) FILTER (WHERE p.id IS NOT NULL), '[]') AS photos
       FROM
@@ -833,9 +846,7 @@ const getCourts = async (req, res) => {
       LEFT JOIN
           subcourts sc ON c.id = sc.court_id
       LEFT JOIN
-          court_prices cp ON c.id = cp.court_id
-      LEFT JOIN
-          court_socials cs ON c.id = cs.court_id
+          court_socials cs ON c.id = sc.court_id
       LEFT JOIN
           photos p ON c.id = p.court_id
       GROUP BY
@@ -893,10 +904,11 @@ const getServices = async (req,res) => {
 }
 const getCourtById = async (req, res) => {
   const { id } = req.params; // courtId
+  console.log(id);
 
   try {
     const result = await pool.query(`
-      SELECT
+         SELECT
           c.id AS court_id,
           c.name AS court_name,
           c.user_id,
@@ -906,34 +918,27 @@ const getCourtById = async (req, res) => {
           c.phone,
           c.court_type,
           c.is_public,
-          c.price AS default_price,
+          c.price,
           c.description,
           c.state,
           c.created_at,
           c.updated_at,
-          COALESCE(json_agg(DISTINCT jsonb_build_object('id', sc.id, 'name', sc.name, 'state', sc.state)) FILTER (WHERE sc.id IS NOT NULL), '[]') AS subcourts,
-          COALESCE(json_agg(DISTINCT jsonb_build_object('id', cp.id, 'day_of_week', cp.day_of_week, 'price', cp.price)) FILTER (WHERE cp.id IS NOT NULL), '[]') AS court_prices,
-          COALESCE(json_agg(DISTINCT jsonb_build_object('id', cs.id, 'platform', cs.platform, 'url', cs.url)) FILTER (WHERE cs.id IS NOT NULL), '[]') AS court_socials,
+          c.is_court,
           COALESCE(json_agg(DISTINCT jsonb_build_object('id', p.id, 'url', p.url)) FILTER (WHERE p.id IS NOT NULL), '[]') AS photos
       FROM
           courts c
       LEFT JOIN
           users u ON c.user_id = u.id
       LEFT JOIN
-          subcourts sc ON c.id = sc.court_id
-      LEFT JOIN
-          court_prices cp ON c.id = cp.court_id
-      LEFT JOIN
-          court_socials cs ON c.id = cs.court_id
-      LEFT JOIN
           photos p ON c.id = p.court_id
-      WHERE
-          c.id = $1
+      WHERE 
+        c.id=$1
       GROUP BY
-          c.id, u.name;
+          c.id, u.name
+      ORDER BY
+          c.created_at DESC;
     `, [id]);
-
-    if (result.rows.length === 0) {
+        if (result.rows.length === 0) {
       return res.status(404).json({ success: false, message: "Cancha no encontrada." });
     }
     res.status(200).json({ success: true, court: result.rows[0] });
@@ -942,69 +947,99 @@ const getCourtById = async (req, res) => {
     res.status(500).json({ error: "Error al obtener cancha: " + error.message });
   }
 };
-
 
 const getSubCourts = async (req, res) => {
   const { id } = req.params;
+  console.log(id);
 
   try {
     const result = await pool.query(`
-      SELECT
-          c.id AS court_id,
-          c.name AS court_name,
-          c.user_id,
-          u.name AS owner_name,
-          c.address,
-          c.city,
-          c.phone,
-          c.court_type,
-          c.is_public,
-          c.price AS default_price,
-          c.description,
-          c.state,
-          c.created_at,
-          c.updated_at,
-          COALESCE(json_agg(DISTINCT jsonb_build_object('id', sc.id, 'name', sc.name, 'state', sc.state)) FILTER (WHERE sc.id IS NOT NULL), '[]') AS subcourts,
-          COALESCE(json_agg(DISTINCT jsonb_build_object('id', p.id, 'url', p.url)) FILTER (WHERE p.id IS NOT NULL), '[]') AS photos
-      FROM
-          courts c
-      LEFT JOIN
-          users u ON c.user_id = u.id
-      LEFT JOIN
-          subcourts sc ON c.id = sc.court_id
-      LEFT JOIN
-          photos p ON c.id = p.court_id
-      WHERE
-          u.id = $1
-      GROUP BY
-          c.id, u.name;
+SELECT
+  sc.id AS subcourt_id,
+  sc.name AS subcourt_name,
+  sc.state,
+  c.id
+FROM
+  subcourts sc
+JOIN
+  courts c ON sc.court_id = c.id
+WHERE
+  c.user_id = $1;
     `, [id]);
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ success: false, message: "Cancha no encontrada." });
-    }
-    res.status(200).json({ success: true, court: result.rows[0] });
+const subcourts = result.rows; // El resultado de la consulta es un array de filas.
+res.status(200).json({ success: true, subcourts: subcourts });
   } catch (error) {
-    console.error("Error al obtener cancha por ID:", error.message);
-    res.status(500).json({ error: "Error al obtener cancha: " + error.message });
+    console.error("Error al obtener subcanchas:", error.message);
+    res.status(500).json({ error: "Error al obtener subcanchas: " + error.message });
   }
 };
+
+const createSubcourt = async (req, res) => {
+  console.log(req.body);
+
+  // Se obtiene el court_id de los parámetros de la URL (req.params)
+  const { id } = req.params;
+  const { name, state = true } = req.body;  
+
+  // Validación básica
+  if (!name) {
+    return res.status(400).json({ error: "El nombre de la subcancha es obligatorio." });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // 1. Verificar si la cancha existe y pertenece al usuario autenticado
+    const courtResult = await client.query(
+      "SELECT id FROM courts WHERE user_id = $1",
+      [id]
+    );
+
+    if (courtResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: "Cancha no encontrada." });
+    }
+
+
+
+    // 2. Insertar la nueva subcancha
+    const subcourtId = v4();
+    const now = new Date();
+    const result = await client.query(
+      "INSERT INTO subcourts (id,court_id, name, created_at, updated_at, state) VALUES ($1, $2, $3, $4, $5,$6) RETURNING *",
+      [subcourtId,courtResult.rows[0].id, name, now, now, state]
+    );
+
+    await client.query('COMMIT');
+
+     const newSubcourt = result.rows[0];
+
+    await client.query('COMMIT');
+    return res.status(201).json({
+      success: true,
+      message: "Subcancha creada exitosamente.",
+      subcourt: newSubcourt,
+    });
+
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error("Error al crear la subcancha:", error.message);
+    return res.status(500).json({ error: "Error al crear la subcancha: " + error.message });
+  } finally {
+    client.release();
+  }
+};
+
 
 const updateCourt = async (req, res) => {
   const { id } = req.params;
   const {
     name,
-    address,
-    city,
+    description,
     phone,
     court_type,
-    is_public,
-    price,
-    description,
-    state,
-    subcourts,
-    court_prices,
-    court_socials
   } = req.body;
   const userId = req.user.id;
 
@@ -1013,15 +1048,7 @@ const updateCourt = async (req, res) => {
     await client.query('BEGIN');
     await client.query(`SET app.current_user_id = '${userId}';`);
 
-    const courtResult = await client.query(
-      "SELECT user_id FROM courts WHERE id = $1",
-      [id]
-    );
 
-    if (courtResult.rows.length === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ error: "Cancha no encontrada." });
-    }
 
     const courtOwnerId = courtResult.rows[0].user_id;
     if (userId !== courtOwnerId && req.user.role !== 'admin') {
@@ -1032,53 +1059,9 @@ const updateCourt = async (req, res) => {
     const now = new Date();
 
     await client.query(
-      `UPDATE courts SET
-        name = COALESCE($1, name),
-        address = COALESCE($2, address),
-        city = COALESCE($3, city),
-        phone = COALESCE($4, phone),
-        court_type = COALESCE($5, court_type),
-        is_public = COALESCE($6, is_public),
-        price = COALESCE($7, price),
-        description = COALESCE($8, description),
-        state = COALESCE($9, state),
-        updated_at = $10
-      WHERE id = $11`,
-      [name, address, city, phone, court_type, is_public, price, description, state, now, id]
+      `UPDATE courts SET name = $1 , description = $2 , court_type= $3 , phone = $4 , updated_at = $5 where user_id = $6`,
+      [name, description, court_type, phone,now,id]
     );
-
-    if (subcourts !== undefined && Array.isArray(subcourts)) {
-      for (const subcourt of subcourts) {
-        if (subcourt.id) {
-          await client.query(
-            "UPDATE subcourts SET name = COALESCE($1, name), state = COALESCE($2, state), updated_at = $3 WHERE id = $4 AND court_id = $5",
-            [subcourt.name, subcourt.state, now, subcourt.id, id]
-          );
-        }
-      }
-    }
-
-    if (court_prices !== undefined && Array.isArray(court_prices)) {
-      for (const cp of court_prices) {
-        if (cp.id) {
-          await client.query(
-            "UPDATE court_prices SET day_of_week = COALESCE($1, day_of_week), price = COALESCE($2, price), updated_at = $3 WHERE id = $4 AND court_id = $5",
-            [cp.day_of_week, cp.price, now, cp.id, id]
-          );
-        }
-      }
-    }
-
-    if (court_socials !== undefined && Array.isArray(court_socials)) {
-      for (const cs of court_socials) {
-        if (cs.id) {
-          await client.query(
-            "UPDATE court_socials SET platform = COALESCE($1, platform), url = COALESCE($2, url), updated_at = $3 WHERE id = $4 AND court_id = $5",
-            [cs.platform, cs.url, now, cs.id, id]
-          );
-        }
-      }
-    }
 
     await client.query('COMMIT');
     res.status(200).json({ success: true, message: "Cancha y sus datos asociados actualizados exitosamente (solo registros existentes con ID)." });
@@ -1175,12 +1158,11 @@ const deleteCourt = async (req, res) => {
 
 const deleteSubcourt = async (req, res) => {
   const { subcourtId } = req.params;
-  const userId = req.user.id;
+  
 
+  console.log(subcourtId)
   const client = await pool.connect();
   try {
-    await client.query('BEGIN');
-    await client.query(`SET app.current_user_id = '${userId}';`);
 
     const subcourtResult = await client.query(
       "SELECT court_id FROM subcourts WHERE id = $1",
@@ -1199,11 +1181,6 @@ const deleteSubcourt = async (req, res) => {
       [courtId]
     );
 
-    const courtOwnerId = courtOwnerResult.rows[0].user_id;
-    if (userId !== courtOwnerId && req.user.role !== 'admin') {
-      await client.query('ROLLBACK');
-      return res.status(403).json({ error: "No tienes permiso para eliminar esta subcancha." });
-    }
 
     const deleteResult = await client.query("DELETE FROM subcourts WHERE id = $1", [subcourtId]);
 
@@ -1223,28 +1200,87 @@ const deleteSubcourt = async (req, res) => {
   }
 };
 
+
 const createReservation = async (req, res) => {
-  const { subcourtId } = req.params;
+    const { subcourtId } = req.params;
     const {
-        client_id, // Usamos client_id en lugar de user_id
+        user_id,
         reservation_date,
         reservation_time,
         duration,
         end_time,
         state,
         price_reservation,
-        transfer
+        transfer,
+        phone,
+        user_name
     } = req.body;
 
-    console.log(req.body)
+    console.log(req.body);
+
     try {
+        // Validación de precio basada en la lógica de la respuesta anterior
+        const dayOfWeek = new Date(reservation_date).toLocaleDateString('es-ES', { weekday: 'long' }).toLowerCase();
+
+        // Paso 1: Obtener el court_id a partir del subcourt_id
+        const subcourtResult = await pool.query('SELECT court_id FROM subcourts WHERE id = $1', [subcourtId]);
+
+        if (subcourtResult.rows.length === 0) {
+            return res.status(404).json({ error: "Subcancha no encontrada." });
+        }
+   
+console.log(subcourtId);
+console.log(dayOfWeek);
+        // Paso 2: Buscar el precio en la tabla court_prices
+        const priceResult = await pool.query(
+            `SELECT price FROM subcourt_prices WHERE subcourt_id= $1 AND day_of_week = $2`,
+            [subcourtId, dayOfWeek]
+        );
+
+        if (priceResult.rows.length === 0) {
+            return res.status(404).json({
+                error: `No se encontró precio para la cancha ${subcourtId} en el día ${dayOfWeek}.`
+            });
+        }
+
+        // --- LÓGICA DE VALIDACIÓN DE SOLAPAMIENTO DE RESERVAS ---
+        
+        // 1. Convertir la hora de inicio y fin a objetos de fecha para compararlos
+        const startDateTime = new Date(`${reservation_date}T${reservation_time}:00`);
+        const endDateTime = new Date(startDateTime.getTime() + duration * 60000); // Suma la duración en milisegundos
+
+        // 2. Consultar la base de datos para buscar reservas existentes que se solapen
+        const existingReservation = await pool.query(
+            `SELECT * FROM reservations 
+             WHERE subcourt_id = $1
+             AND reservation_date = $2
+             AND (
+                 (reservation_time < $3 AND end_time > $4) OR -- Reserva existente que empieza antes y termina después
+                 (reservation_time >= $3 AND reservation_time < $4) OR -- Reserva existente que empieza en medio
+                 (end_time > $3 AND end_time <= $4) -- Reserva existente que termina en medio
+             )`,
+            [
+                subcourtId,
+                reservation_date,
+                endDateTime.toTimeString().split(' ')[0].substring(0, 5), // Hora de fin
+                startDateTime.toTimeString().split(' ')[0].substring(0, 5) // Hora de inicio
+            ]
+        );
+
+
+        console.log(existingReservation)
+        if (existingReservation.rowCount > 0) {
+            return res.status(409).json({ error: "La subcancha ya está reservada en este lapso de tiempo." });
+        }
+
+        // 3. Si no hay solapamiento, proceder con la inserción
         const reservationId = v4();
         const now = new Date();
 
         const result = await pool.query(
             `INSERT INTO reservations (
                 id,
-                client_id,
+                user_id,
                 subcourt_id,
                 reservation_date,
                 reservation_time,
@@ -1254,22 +1290,26 @@ const createReservation = async (req, res) => {
                 price_reservation,
                 transfer,
                 created_at,
-                updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                updated_at,
+                user_name,
+                phone
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
             RETURNING id, subcourt_id, reservation_date, reservation_time`,
             [
                 reservationId,
-                client_id,
+                user_id,
                 subcourtId,
                 reservation_date,
                 reservation_time,
                 duration,
-                end_time,
+                end_time, // ¡ATENCIÓN! La variable end_time del body no se usa en la validación, necesitas calcularla en el frontend o aquí. Si quieres usarla, asegúrate de que sea precisa.
                 state,
                 price_reservation,
                 transfer,
                 now,
-                now
+                now,
+                user_name,
+                phone
             ]
         );
 
@@ -1292,6 +1332,243 @@ const createReservation = async (req, res) => {
         });
     }
 };
+const getReservationsBySubcourt = async (req, res) => {
+    const { subcourtId } = req.params;
+
+    try {
+        const result = await pool.query(
+            `SELECT 
+                reservation_date,
+                reservation_time,
+                duration
+            FROM reservations 
+            WHERE subcourt_id = $1 AND state = true`,
+            [subcourtId]
+        );
+
+        res.status(200).json(result.rows);
+    } catch (error) {
+        console.error("Error al obtener las reservas:", error.message);
+        res.status(500).json({
+            error: "Error interno del servidor al obtener las reservas.",
+            details: error.message
+        });
+    }
+};
+
+const getSubCourtPrice= async (req, res) => {
+    const { subcourtId } = req.params;
+
+    try {
+        const result = await pool.query(
+            ` SELECT
+    sc.id,
+    sc.name,
+    sc.state,
+    json_object_agg(sp.day_of_week, sp.price) AS price
+FROM
+    subcourts sc
+LEFT JOIN
+    subcourt_prices sp ON sc.id = sp.subcourt_id
+WHERE
+    sc.id = $1 AND sc.state = true
+GROUP BY
+    sc.id, sc.name, sc.state;`,
+            [subcourtId]
+        );
+
+        res.status(200).json(result.rows);
+    } catch (error) {
+        console.error("Error al obtener las reservas:", error.message);
+        res.status(500).json({
+            error: "Error interno del servidor al obtener las reservas.",
+            details: error.message
+        });
+    }
+}
+
+
+const updateSubCourtAndPrices = async (req, res) => {
+    const { subcourtId } = req.params;
+    const { name, price, state } = req.body;
+
+    console.log("Datos recibidos:", { name, price, state }); // Log data for debugging
+
+    const client = await pool.connect();
+
+    try {
+        await client.query('BEGIN'); // Start transaction
+
+        // 1. Update the 'subcourts' table
+        await client.query(
+            "UPDATE subcourts SET name = $1, state = $2 WHERE id = $3",
+            [name, state, subcourtId]
+        );
+
+        // 2. UPSERT prices in the 'subcourt_prices' table for each day
+        const days = Object.keys(price);
+        for (const day of days) {
+            const priceValue = price[day];
+            
+            // ✅ Use UPSERT (INSERT ... ON CONFLICT)
+            await client.query(
+                `update subcourt_prices set price =$1 where day_of_week = $2 and subcourt_id =$3`,
+                [priceValue,day,subcourtId]
+            );
+        }
+
+        await client.query('COMMIT'); // Commit the transaction
+
+        res.status(200).json({
+            message: 'Subcancha y precios actualizados exitosamente.',
+            data: { name, price, state }
+        });
+
+    } catch (error) {
+        await client.query('ROLLBACK'); // Roll back on error
+        console.error('Error al actualizar la subcancha:', error);
+        res.status(500).json({ error: 'Error interno del servidor.' });
+    } finally {
+        client.release();
+    }
+};
+
+const getUserCourtsReservations = async (req, res) => {
+    const { Id } = req.params; // Captura el ID del dueño de la cancha desde la URL
+
+    if (!Id) {
+        return res.status(400).json({ error: "El ID del usuario es obligatorio." });
+    }
+
+    try {
+        const result = await pool.query(
+            `
+            SELECT
+                r.id AS reservation_id,
+                r.reservation_date,
+                r.reservation_time,
+                r.duration,
+                r.end_time,
+                r.state,
+                r.price_reservation,
+                r.transfer,
+                r.created_at,
+                r.updated_at,
+                r.user_name AS client_name,
+                r.phone AS client_phone,
+                sc.id AS subcourt_id,
+                sc.name AS subcourt_name,
+                c.id AS court_id,
+                c.name AS court_name
+            FROM
+                reservations r
+            JOIN
+                subcourts sc ON r.subcourt_id = sc.id
+            JOIN
+                courts c ON sc.court_id = c.id
+            WHERE
+                c.user_id = $1
+            ORDER BY
+                r.reservation_date DESC, r.reservation_time DESC;
+            `,
+            [Id]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: "No se encontraron reservas para las canchas de este usuario.",
+                reservations: []
+            });
+        }
+
+        res.status(200).json({
+            success: true,
+            message: "Reservas obtenidas exitosamente.",
+            reservations: result.rows
+        });
+
+    } catch (error) {
+        console.error("Error al obtener las reservas:", error.message);
+        res.status(500).json({
+            success: false,
+            error: "Error interno del servidor al obtener las reservas.",
+            details: error.message
+        });
+    }
+};
+
+const getUserReservationsByDate = async (req, res) => {
+    // 1. Validar y capturar los parámetros
+    // La subcancha ID se obtiene de los parámetros de la URL (:id)
+    const { id } = req.params; 
+    // La fecha de la reserva se obtiene de los query parameters (?reservationDate=...)
+    const { reservationDate } = req.query; 
+
+    console.log(reservationDate)
+
+    // 2. Validación
+    if (!id || !reservationDate) {
+        return res.status(400).json({ 
+            success: false,
+            error: "El ID de la subcancha y la fecha de reservación son obligatorios." 
+        });
+    }
+
+    try {
+        // 3. Ejecutar la consulta SQL
+        const result = await pool.query(
+            `
+            SELECT
+                r.id AS reservation_id,
+                r.reservation_date,
+                r.reservation_time,
+                r.duration,
+                r.end_time,
+                r.state,
+                r.price_reservation,
+                r.transfer,
+                r.created_at,
+                r.updated_at,
+                r.user_name AS client_name,
+                r.phone AS client_phone,
+                sc.id AS subcourt_id,
+                sc.name AS subcourt_name,
+                c.id AS court_id,
+                c.name AS court_name
+            FROM
+                reservations r
+            JOIN
+                subcourts sc ON r.subcourt_id = sc.id
+            JOIN
+                courts c ON sc.court_id = c.id
+            WHERE
+                sc.id = $1 AND r.reservation_date = $2
+            ORDER BY
+                r.reservation_time ASC;
+            `,
+            [id, reservationDate]
+        );
+
+        // 4. Devolver la respuesta
+        // Cambio clave aquí: Siempre devolver 200 OK.
+        // Si no hay filas, el array 'result.rows' estará vacío, lo cual es lo que el frontend espera para saber que no hay reservas.
+        res.status(200).json({
+            success: true,
+            message: "Reservas obtenidas exitosamente.",
+            reservations: result.rows
+        });
+
+    } catch (error) {
+        console.error("Error al obtener las reservas:", error.message);
+        res.status(500).json({
+            success: false,
+            error: "Error interno del servidor al obtener las reservas.",
+            details: error.message
+        });
+    }
+};
+
 
 module.exports = {
   getUsers,
@@ -1317,5 +1594,11 @@ module.exports = {
   logout,
   getServices,
   registerServices,
-  getSubCourts
+  getSubCourts,
+  getReservationsBySubcourt,
+  createSubcourt,
+  getSubCourtPrice,
+  updateSubCourtAndPrices,
+  getUserCourtsReservations,
+  getUserReservationsByDate
 };
