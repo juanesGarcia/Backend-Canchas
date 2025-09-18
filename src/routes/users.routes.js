@@ -79,5 +79,5 @@ router.get('/subcourtPrice/:subcourtId', getSubCourtPrice);
 router.post('/subcourt/:id', createSubcourt);
 router.put('/subcourtPrice/:subcourtId', updateSubCourtAndPrices);
 router.get('/Reservation/:id',getUserCourtsReservations);
-router.get('/ReservationDate/:id',getUserReservationsByDate);
+router.get('/ReservationDate/:id',getUserReservationsByDate);//date
 module.exports = router;
