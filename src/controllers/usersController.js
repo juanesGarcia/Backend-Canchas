@@ -3,6 +3,7 @@ const { hash } = require("bcrypt");
 const { verify, sign } = require("jsonwebtoken");
 const { v4 } = require("uuid");
 const { SECRET } = require("../constants");
+const { validationResult } = require('express-validator');
 const {
   uploadFiles,
   deleteFileByName
@@ -1043,18 +1044,15 @@ const updateCourt = async (req, res) => {
   } = req.body;
   const userId = req.user.id;
 
+  console.log(userId)
+
+  console.log(id + 'este es el id')
+
+  console.log(req.body)
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     await client.query(`SET app.current_user_id = '${userId}';`);
-
-
-
-    const courtOwnerId = courtResult.rows[0].user_id;
-    if (userId !== courtOwnerId && req.user.role !== 'admin') {
-      await client.query('ROLLBACK');
-      return res.status(403).json({ error: "No tienes permiso para actualizar esta cancha." });
-    }
 
     const now = new Date();
 
@@ -1570,6 +1568,57 @@ const getUserReservationsByDate = async (req, res) => {
 };
 
 
+// controllers/authController.js
+
+const registerProveedor = async (req, res) => {
+  // 1. Obtener los errores de validación
+  const errors = validationResult(req);
+
+  // 2. Si hay errores, enviar una respuesta de error y detener la ejecución
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
+
+  // Si no hay errores, el código continúa
+  const {
+    email,
+    password,
+    name,
+    role,
+    phone,
+  } = req.body;
+
+  try {
+    await pool.query('BEGIN');
+
+    const user_id = v4();
+    const hashedPassword = await hash(password, 10);
+    const now = new Date();
+
+    // Inserción del usuario (proveedor)
+    await pool.query(
+      "INSERT INTO users(id, name, email, password, role, phone, state, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+      [user_id, name, email, hashedPassword, role, phone, true, now, now]
+    );
+
+    await pool.query('COMMIT');
+
+    return res.status(201).json({
+      success: true,
+      message: "Registro de proveedor exitoso.",
+    });
+  } catch (error) {
+    // Si algo falla, hacer rollback y enviar un error al cliente
+    await pool.query('ROLLBACK');
+    console.error("Error en el registro del proveedor:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Hubo un problema al registrar el proveedor.",
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   getUsers,
   register,
@@ -1600,5 +1649,6 @@ module.exports = {
   getSubCourtPrice,
   updateSubCourtAndPrices,
   getUserCourtsReservations,
-  getUserReservationsByDate
+  getUserReservationsByDate,
+  registerProveedor
 };
