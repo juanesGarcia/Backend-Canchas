@@ -132,11 +132,11 @@ const registerServices = async (req,res) => {
 
     const serviceId = v4();
     const now = new Date();
-
+    const types = 'services';
     // Insertar solo en la tabla 'courts'
     await client.query(
-      "insert into courts(id, name, address, city, phone, price, description, created_at, updated_at, state, user_id, is_court) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
-      [serviceId, courtName, courtAddress, courtCity, courtPhone, price, description, now, now, state, userId, false]
+      "insert into courts(id, name, address, city, phone, price, description, created_at, updated_at, state, user_id, is_court,type) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
+      [serviceId, courtName, courtAddress, courtCity, courtPhone, price, description, now, now, state, userId, types]
     );
 
     await client.query('COMMIT');
@@ -153,6 +153,70 @@ const registerServices = async (req,res) => {
     client.release();
   }
 };
+
+const registerPromotions = async (req, res) => {
+    const {
+        name,
+        phone,
+        price,
+        description,
+        state,
+        type
+    } = req.body;
+
+    const { userId } = req.params;
+
+    console.log(req.body);
+
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+
+        // 1. Validar que la cancha exista y pertenezca al usuario
+        const courtQueryResult = await client.query(
+            "SELECT address, city FROM courts WHERE user_id = $1 AND type = 'court'",
+            [userId]
+        );
+
+        console.log(courtQueryResult)
+
+        if (courtQueryResult.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({
+                success: false,
+                error: "La cancha asociada no existe o no pertenece a este usuario."
+            });
+        }
+        
+        const { address, city } = courtQueryResult.rows[0];
+
+        // 2. Insertar la nueva promoción usando los datos de la cancha
+        const promotionId = v4();
+        const now = new Date();
+        
+        await client.query(
+            "insert into courts(id, name, address, city, phone, price, description, created_at, updated_at, state, user_id, is_court, type) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
+            [promotionId, name, address, city, phone, price, description, now, now, state, userId, false, type]
+        );
+
+        await client.query('COMMIT');
+        return res.status(201).json({
+            success: true,
+            message: "El registro de la promoción fue exitoso y todos los datos fueron guardados.",
+        });
+
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error("Error en el registro de la promoción (transacción revertida):", error.message);
+        return res.status(500).json({
+            success: false,
+            error: "No se pudo completar el registro de la promoción."
+        });
+    } finally {
+        client.release();
+    }
+};
+
 
 const login = async (req, res) => {
   let user = req.user;
@@ -837,6 +901,7 @@ const getCourts = async (req, res) => {
           c.created_at,
           c.updated_at,
           c.is_court,
+          c.type,
           COALESCE(json_agg(DISTINCT jsonb_build_object('id', sc.id, 'name', sc.name, 'state', sc.state)) FILTER (WHERE sc.id IS NOT NULL), '[]') AS subcourts,
           COALESCE(json_agg(DISTINCT jsonb_build_object('id', cs.id, 'platform', cs.platform, 'url', cs.url)) FILTER (WHERE cs.id IS NOT NULL), '[]') AS court_socials,
           COALESCE(json_agg(DISTINCT jsonb_build_object('id', p.id, 'url', p.url)) FILTER (WHERE p.id IS NOT NULL), '[]') AS photos
@@ -925,6 +990,7 @@ const getCourtById = async (req, res) => {
           c.created_at,
           c.updated_at,
           c.is_court,
+          c.type,
           COALESCE(json_agg(DISTINCT jsonb_build_object('id', p.id, 'url', p.url)) FILTER (WHERE p.id IS NOT NULL), '[]') AS photos
       FROM
           courts c
@@ -1533,7 +1599,8 @@ const getUserReservationsByDate = async (req, res) => {
                 sc.id AS subcourt_id,
                 sc.name AS subcourt_name,
                 c.id AS court_id,
-                c.name AS court_name
+                c.name AS court_name,
+                r.user_id
             FROM
                 reservations r
             JOIN
@@ -1650,5 +1717,6 @@ module.exports = {
   updateSubCourtAndPrices,
   getUserCourtsReservations,
   getUserReservationsByDate,
-  registerProveedor
+  registerProveedor,
+  registerPromotions
 };

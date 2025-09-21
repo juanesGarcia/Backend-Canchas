@@ -30,7 +30,8 @@ getSubCourtPrice,
 updateSubCourtAndPrices,
 getUserCourtsReservations,
 getUserReservationsByDate,
-registerProveedor
+registerProveedor,
+registerPromotions
 }=require("../controllers/usersController")
 const {
     registerValidator, 
@@ -47,6 +48,7 @@ const router = Router();
 router.get('/users',getUsers);
 router.post('/register',registerValidator,register);
 router.post('/registerProveedor',registerValidator,registerProveedor);
+router.post('/registerPromotions/:userId',registerPromotions);
 router.post('/registerServices/:userId',registerServices);
 router.post('/login',loginValidation,validationMiddleware,login);
 router.get(
