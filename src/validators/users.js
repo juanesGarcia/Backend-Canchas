@@ -24,15 +24,18 @@ const password= check('password')
   .matches(/^[\w-]+(\.[\w-]+)*@([\w-]+\.)+[a-zA-Z]{2,7}$/)
   .withMessage('Debe proporcionar un correo electrónico válido');
 
-const emailExist = check('email').custom(async(value)=>{
-    const {rows} = await db.query('select * from users where email = $1',[
-        value,
-    ])
+const emailExist = check('email')
+  .isEmail()
+  .withMessage('Debe proporcionar un correo electrónico válido')
+  .custom(async (value) => {
+    const { rows } = await db.query('select * from users where email = $1', [
+      value,
+    ]);
 
- if(rows.length){
-    throw new Error("Ya existe el email")
- }
-})
+    if (rows.length) {
+      throw new Error("Ya existe el email");
+    }
+  });
 
 const loginCheck = check('email').custom(async(value, {req})=>{
   const user = await db.query('select * from users where email = $1',[value])
@@ -58,7 +61,7 @@ if(rows.length){
 })
 
 module.exports={
-  registerValidator: [password,email,emailExist,name,nameExist],
+  registerValidator: [password,emailExist,name,nameExist],
   loginValidation:[loginCheck],
   updateValidator:[password,name,nameExist]
 }
