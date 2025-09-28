@@ -148,7 +148,8 @@ console.log('user'+userId)
     return res.status(201).json({
       success: true,
       message: "El registro fue exitoso y todos los datos fueron guardados.",
-      user: userId
+      user: userId,
+      promotionId: serviceId
     });
   } catch (error) {
     await client.query('ROLLBACK');
@@ -204,10 +205,13 @@ const registerPromotions = async (req, res) => {
             [promotionId, name, address, city, phone, price, description, now, now, state, userId, false, type]
         );
 
+
+      await client.query('COMMIT');
       return res.status(201).json({
       success: true,
       message: "El registro fue exitoso y todos los datos fueron guardados.",
-      user: userId
+      user: userId,
+      promotionId
     });
 
     } catch (error) {
@@ -281,33 +285,34 @@ const verifyToken = (req, res, next) => {
 
 // En tu backend (Node.js)
 const updateUser = async (req, res) => {
-    const { id } = req.params;
-    // ✅ CORRECCIÓN: Accede al objeto 'userData' y luego desestructura 'name' y 'password'.
-    const { password, name } = req.body; 
+  const { id } = req.params;
+  const { password, name, email } = req.body;
 
-    console.log(req.body); // Esto mostrará { userData: { name: '...', password: '...' } }
-    console.log(name);
+  console.log("Datos recibidos:", req.body);
 
-    try {
- 
-        console.log(password);
-        const hashedPassword = await hash(password, 10);
+  try {
+      const hashedPassword = await hash(password, 10);
 
-        await pool.query(
-            "UPDATE users SET name = $1, password = $2 WHERE id = $3",
-            [name, hashedPassword, id]
-        );
-        res.json({
-            success: true,
-            message: "Perfil actualizado correctamente.",
-        });
-    } catch (error) {
-        console.log(error.message);
-        return res.status(500).json({
-            error: error.message,
-        });
-    }
+      await pool.query(
+          `UPDATE users 
+           SET name = $1, email = $2, password = $3 
+           WHERE id = $4`,
+          [name, email, hashedPassword, id]
+      );
+
+      res.json({
+          success: true,
+          message: "Perfil actualizado correctamente.",
+      });
+  } catch (error) {
+      console.error("Error al actualizar usuario:", error.message);
+      return res.status(500).json({
+          error: "Error interno al actualizar el perfil.",
+          details: error.message
+      });
+  }
 };
+
 
 const deleteUser = async (req, res) => {
   const { id } = req.params;
@@ -359,8 +364,6 @@ const logout =async(req, res) => {
 const uploadImages = async (req, res) => {
   const { id } = req.params;
 
-  console.log(id)
-
   if (!req.files || req.files.length === 0) {
     return res.status(400).json({
       error: "Debe subir al menos una imagen para la cancha.",
@@ -381,18 +384,41 @@ const uploadImages = async (req, res) => {
       });
     }
 
-    let court_Id = getCourtResult.rows[0].id;
+    const court_Id = getCourtResult.rows[0].id;
 
-    console.log('court'+court_Id)
+    // --- NUEVO BLOQUE: eliminar fotos actuales ---
+    const existingPhotosResult = await pool.query(
+      "SELECT id, url FROM photos WHERE court_id = $1",
+      [court_Id]
+    );
 
+    const existingPhotos = existingPhotosResult.rows;
+
+    // Eliminar las fotos de Firebase (o almacenamiento)
+    for (const photo of existingPhotos) {
+      try {
+        await deleteFileByName(photo.url); // función que elimina la imagen por url/ruta
+      } catch (firebaseError) {
+        console.error("Error eliminando imagen previa en Firebase:", firebaseError);
+      }
+    }
+
+    // Eliminar las fotos de la base de datos
+    await pool.query(
+      "DELETE FROM photos WHERE court_id = $1",
+      [court_Id]
+    );
+    // --- FIN BLOQUE ELIMINACIÓN ---
+
+    // Subir nuevas imágenes
     const photoInsertPromises = req.files.map(async (file) => {
       try {
         const result = await uploadFiles(file);
-         const photosId = v4();
-         const now = new Date();
+        const photosId = v4();
+        const now = new Date();
         const insertPhotoResult = await pool.query(
           "INSERT INTO photos (id,court_id, url,created_at,updated_at) VALUES ($1, $2,$3,$4,$5) RETURNING id, url",
-          [photosId,court_Id, result.url,now,now]
+          [photosId, court_Id, result.url, now, now]
         );
         return { success: true, data: insertPhotoResult.rows[0], filePath: file.path };
       } catch (photoError) {
@@ -407,6 +433,7 @@ const uploadImages = async (req, res) => {
 
     const photoInsertResults = await Promise.all(photoInsertPromises);
 
+    // Limpiar archivos temporales subidos (como antes)
     const cleanupPromises = filesToCleanup.map(async (filePath) => {
       if (!filePath) return;
 
@@ -449,6 +476,7 @@ const uploadImages = async (req, res) => {
     });
 
   } catch (error) {
+    // Limpieza en caso de error
     const cleanupOnFailPromises = filesToCleanup.map(async (filePath) => {
       if (!filePath) return;
       try {
@@ -462,6 +490,127 @@ const uploadImages = async (req, res) => {
     await Promise.all(cleanupOnFailPromises);
 
     res.status(500).json({
+      error: "Error interno del servidor al procesar las imágenes.",
+      details: error.message,
+    });
+  }
+};
+
+
+const uploadImagesServices = async (req, res) => {
+  const { id } = req.params;
+
+  if (!req.files || req.files.length === 0) {
+    return res.status(400).json({
+      error: "Debe subir al menos una imagen para la cancha.",
+    });
+  }
+
+  const filesToCleanup = req.files.map(file => file.path).filter(Boolean);
+
+  try {
+    // 1. Verificar si existen fotos anteriores
+    const existingPhotosResult = await pool.query(
+      "SELECT id, url FROM photos WHERE court_id = $1",
+      [id]
+    );
+
+    const existingPhotos = existingPhotosResult.rows;
+
+    if (existingPhotos.length > 0) {
+      // 2. Eliminar imágenes del storage (Firebase, etc.)
+      for (const photo of existingPhotos) {
+        try {
+          await deleteFileByName(photo.url);
+        } catch (firebaseError) {
+          console.error("Error eliminando imagen previa en Firebase:", firebaseError);
+        }
+      }
+
+      // 3. Eliminar registros en DB
+      await pool.query("DELETE FROM photos WHERE court_id = $1", [id]);
+    }
+
+    // 4. Subir nuevas imágenes
+    const photoInsertPromises = req.files.map(async (file) => {
+      try {
+        const result = await uploadFiles(file);
+        const photosId = v4();
+        const now = new Date();
+        const insertPhotoResult = await pool.query(
+          "INSERT INTO photos (id, court_id, url, created_at, updated_at) VALUES ($1, $2, $3, $4, $5) RETURNING id, url",
+          [photosId, id, result.url, now, now]
+        );
+        return { success: true, data: insertPhotoResult.rows[0], filePath: file.path };
+      } catch (photoError) {
+        return {
+          success: false,
+          error: photoError.message,
+          originalname: file.originalname,
+          filePath: file.path,
+        };
+      }
+    });
+
+    const photoInsertResults = await Promise.all(photoInsertPromises);
+
+    // 5. Limpiar archivos temporales
+    const cleanupPromises = filesToCleanup.map(async (filePath) => {
+      if (!filePath) return;
+
+      const MAX_RETRIES = 15;
+      const RETRY_DELAY_MS = 300;
+
+      for (let i = 0; i < MAX_RETRIES; i++) {
+        try {
+          await new Promise((resolve) => setTimeout(resolve, 150 + i * RETRY_DELAY_MS));
+          await fs.unlink(filePath);
+          return { success: true, filePath: filePath };
+        } catch (unlinkError) {
+          if (unlinkError.code === "EPERM") {
+            if (i === MAX_RETRIES - 1) {
+              return { success: false, filePath: filePath, error: unlinkError.message };
+            }
+          } else if (unlinkError.code === "ENOENT") {
+            return { success: true, filePath: filePath };
+          } else {
+            return { success: false, filePath: filePath, error: unlinkError.message };
+          }
+        }
+      }
+    });
+
+    await Promise.all(cleanupPromises);
+
+    const failedPhotoOperations = photoInsertResults.filter((r) => !r.success);
+
+    if (failedPhotoOperations.length > 0) {
+      return res.status(500).json({
+        message: "Se procesaron las imágenes, pero algunas operaciones fallaron.",
+        details: failedPhotoOperations,
+      });
+    }
+
+    return res.status(200).json({
+      message: "Imágenes subidas exitosamente.",
+      uploadedPhotos: photoInsertResults.map(r => r.data),
+    });
+
+  } catch (error) {
+    // Limpieza en caso de error
+    const cleanupOnFailPromises = filesToCleanup.map(async (filePath) => {
+      if (!filePath) return;
+      try {
+        await fs.unlink(filePath);
+      } catch (cleanupError) {
+        if (cleanupError.code !== "ENOENT") {
+          console.error(`Error inesperado al limpiar el archivo ${filePath}:`, cleanupError);
+        }
+      }
+    });
+    await Promise.all(cleanupOnFailPromises);
+
+    return res.status(500).json({
       error: "Error interno del servidor al procesar las imágenes.",
       details: error.message,
     });
@@ -1285,18 +1434,19 @@ const createReservation = async (req, res) => {
 
     console.log(req.body);
 
+    console.log(reservation_date+ 'aca')
+
     try {
         // Validación de precio basada en la lógica de la respuesta anterior
-        const dayOfWeek = new Date(reservation_date).toLocaleDateString('es-ES', { weekday: 'long' }).toLowerCase();
-
+        const date = new Date(`${reservation_date}T00:00:00`);
+        const formatter = new Intl.DateTimeFormat('es-ES', { weekday: 'long', timeZone: 'America/Bogota' });
+        const dayOfWeek = formatter.format(date).toLowerCase();
         // Paso 1: Obtener el court_id a partir del subcourt_id
         const subcourtResult = await pool.query('SELECT court_id FROM subcourts WHERE id = $1', [subcourtId]);
 
         if (subcourtResult.rows.length === 0) {
             return res.status(404).json({ error: "Subcancha no encontrada." });
         }
-   
-console.log(subcourtId);
 console.log(dayOfWeek);
         // Paso 2: Buscar el precio en la tabla court_prices
         const priceResult = await pool.query(
@@ -1572,7 +1722,7 @@ const getUserReservationsByDate = async (req, res) => {
     // La fecha de la reserva se obtiene de los query parameters (?reservationDate=...)
     const { reservationDate } = req.query; 
 
-    console.log(reservationDate)
+    console.log(reservationDate+'date')
 
     // 2. Validación
     if (!id || !reservationDate) {
@@ -1704,7 +1854,8 @@ const getReservationActive = async (req, res) => {
                 sc.name AS subcourt_name,
                 r.price_reservation ,
                 r.duration,
-                sc.id AS subcourt_id
+                sc.id AS subcourt_id,
+                r.end_time
             FROM
                 reservations r
             JOIN
@@ -1712,9 +1863,7 @@ const getReservationActive = async (req, res) => {
             JOIN
                 courts c ON sc.court_id = c.id
             WHERE
-                c.user_id = $1
-                -- **Opcional: Añade un filtro de estado si es 'Active'**
-                -- AND r.state IN ('confirmed', 'pending') 
+                c.user_id = $1 and r.reservation_date>=now()
             ORDER BY
                 r.reservation_date DESC, r.reservation_time DESC
             `,
@@ -1738,6 +1887,51 @@ const getReservationActive = async (req, res) => {
             error: 'Error interno del servidor al obtener las reservas.'
         });
     }
+};
+
+const getPromotionsByUser = async (req, res) => {
+  const { id } = req.params; // user_id
+  try {
+    const result = await pool.query(
+      `
+      SELECT 
+        c.id AS court_id,
+        c.user_id,
+        c.name AS  court_name,
+        c.description,
+        c.city,
+        c.address,
+        c.phone,
+        c.price,
+        c.created_at,
+        c.updated_at,
+        c.state,
+        c.type,
+        COALESCE(json_agg(DISTINCT jsonb_build_object('id', p.id, 'url', p.url)) 
+          FILTER (WHERE p.id IS NOT NULL), '[]') AS photos
+      FROM courts c
+      LEFT JOIN photos p ON c.id = p.court_id
+      WHERE c.type in ('promotion','services') AND c.user_id = $1
+      GROUP BY c.id
+      ORDER BY c.created_at DESC
+      `,
+      [id]
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Promociones obtenidas correctamente.",
+      courts: result.rows, 
+    });
+
+  } catch (error) {
+    console.error("Error al obtener promociones:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Hubo un error al obtener las promociones.",
+      error: error.message
+    });
+  }
 };
 
 
@@ -1774,5 +1968,7 @@ module.exports = {
   getUserReservationsByDate,
   registerProveedor,
   registerPromotions,
-  getReservationActive
+  getReservationActive,
+  getPromotionsByUser,
+  uploadImagesServices
 };

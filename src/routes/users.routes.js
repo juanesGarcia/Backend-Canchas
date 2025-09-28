@@ -32,7 +32,9 @@ getUserCourtsReservations,
 getUserReservationsByDate,
 registerProveedor,
 registerPromotions,
-getReservationActive
+getReservationActive,
+getPromotionsByUser,
+uploadImagesServices
 }=require("../controllers/usersController")
 const {
     registerValidator, 
@@ -64,6 +66,7 @@ router.get('/logout',logout);
 router.put('/user/:id', updateValidator,updateUser);
 router.delete('/user/:id',userAuth,deleteUser);
 router.post('/upload/:id',upload.array('photo', 5),uploadImages);
+router.post('/uploadServices/:id',upload.array('photo', 5),uploadImagesServices);
 router.get('/getimages/:id',getImages)
 router.delete('/deleteimages/:id/:courtId', deleteImages);
 router.post('/posts', verifyToken, upload.array('images', 5), createPost); 
@@ -86,4 +89,5 @@ router.put('/subcourtPrice/:subcourtId', updateSubCourtAndPrices);
 router.get('/Reservation/:id',getUserCourtsReservations);
 router.get('/ReservationDate/:id',getUserReservationsByDate);//date
 router.get('/userCourts/:Id',getReservationActive);
+router.get('/getPromotions/:id',getPromotionsByUser);
 module.exports = router;
