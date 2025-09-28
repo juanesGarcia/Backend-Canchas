@@ -98,6 +98,7 @@ const register = async (req, res) => {
     return res.status(201).json({
       success: true,
       message: "El registro fue exitoso y todos los datos fueron guardados.",
+      user: user_id
     });
   } catch (error) {
     await client.query('ROLLBACK');
@@ -119,7 +120,10 @@ const registerServices = async (req,res) => {
     courtPhone,
     price,
     description,
-    state
+    state,
+    court_type,
+    is_public,
+    is_court
   } = req.body;
 
  const { userId } = req.params;
@@ -135,16 +139,17 @@ const registerServices = async (req,res) => {
     const types = 'services';
     // Insertar solo en la tabla 'courts'
     await client.query(
-      "insert into courts(id, name, address, city, phone, price, description, created_at, updated_at, state, user_id, is_court,type) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
-      [serviceId, courtName, courtAddress, courtCity, courtPhone, price, description, now, now, state, userId, types]
+      "insert into courts(id, name, address, city, phone, price, description, created_at, updated_at, state, user_id,is_court,type) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,$13)",
+      [serviceId, courtName, courtAddress, courtCity, courtPhone, price, description, now, now, state, userId, is_court,court_type]
     );
+console.log('user'+userId)
 
-    await client.query('COMMIT');
-        return res.status(201).json({
+    await client.query('COMMIT');
+    return res.status(201).json({
       success: true,
-      message: "El registro del servicio fue exitoso y todos los datos fueron guardados.",
+      message: "El registro fue exitoso y todos los datos fueron guardados.",
+      user: userId
     });
-
   } catch (error) {
     await client.query('ROLLBACK');
     console.error("Error en el registro del servicio (transacción revertida):", error.message);
@@ -199,11 +204,11 @@ const registerPromotions = async (req, res) => {
             [promotionId, name, address, city, phone, price, description, now, now, state, userId, false, type]
         );
 
-        await client.query('COMMIT');
-        return res.status(201).json({
-            success: true,
-            message: "El registro de la promoción fue exitoso y todos los datos fueron guardados.",
-        });
+      return res.status(201).json({
+      success: true,
+      message: "El registro fue exitoso y todos los datos fueron guardados.",
+      user: userId
+    });
 
     } catch (error) {
         await client.query('ROLLBACK');
@@ -353,7 +358,8 @@ const logout =async(req, res) => {
 
 const uploadImages = async (req, res) => {
   const { id } = req.params;
-  const { description } = req.body;
+
+  console.log(id)
 
   if (!req.files || req.files.length === 0) {
     return res.status(400).json({
@@ -376,11 +382,8 @@ const uploadImages = async (req, res) => {
     }
 
     let court_Id = getCourtResult.rows[0].id;
-console.log(court_Id);
-    const courtResult = await pool.query(
-      "UPDATE courts SET description = $1, updated_at = NOW() WHERE id = $2 RETURNING id,name",
-      [description, court_Id]
-    );
+
+    console.log('court'+court_Id)
 
     const photoInsertPromises = req.files.map(async (file) => {
       try {
@@ -441,7 +444,7 @@ console.log(court_Id);
 
     res.status(200).json({
       message: "Imágenes y descripción subidas exitosamente.",
-      court: courtResult.rows[0],
+      court: getCourtResult.rows[0],
       uploadedPhotos: photoInsertResults.map(r => r.data),
     });
 
@@ -1668,11 +1671,12 @@ const registerProveedor = async (req, res) => {
       [user_id, name, email, hashedPassword, role, phone, true, now, now]
     );
 
-    await pool.query('COMMIT');
 
-    return res.status(201).json({
+    await pool.query('COMMIT');
+      return res.status(201).json({
       success: true,
-      message: "Registro de proveedor exitoso.",
+      message: "El registro fue exitoso y todos los datos fueron guardados.",
+      user: user_id
     });
   } catch (error) {
     // Si algo falla, hacer rollback y enviar un error al cliente
@@ -1685,6 +1689,57 @@ const registerProveedor = async (req, res) => {
     });
   }
 };
+
+const getReservationActive = async (req, res) => {
+    const { Id } = req.params;
+    console.log("ID recibido:", Id); // Log para verificar la entrada
+
+    try {
+        const result = await pool.query(
+            `
+            SELECT 
+                r.reservation_date,
+                r.reservation_time,
+                r.state, 
+                sc.name AS subcourt_name,
+                r.price_reservation ,
+                r.duration,
+                sc.id AS subcourt_id
+            FROM
+                reservations r
+            JOIN
+                subcourts sc ON r.subcourt_id = sc.id
+            JOIN
+                courts c ON sc.court_id = c.id
+            WHERE
+                c.user_id = $1
+                -- **Opcional: Añade un filtro de estado si es 'Active'**
+                -- AND r.state IN ('confirmed', 'pending') 
+            ORDER BY
+                r.reservation_date DESC, r.reservation_time DESC
+            `,
+            [Id]
+        );
+
+        console.log(`Reservas encontradas para ID ${Id}: ${result.rows.length}`);
+        
+        // El estado HTTP 200 es correcto
+        return res.status(200).json({
+            success: true,
+            reservations: result.rows
+        });
+
+    } catch (error) {
+        // 🚨 CAMBIO IMPORTANTE: Mostrar el error real de la base de datos
+        console.error('Error al obtener las reservas activas:', error.message || error); 
+        
+        // Asegúrate de que el mensaje de error para el cliente sea genérico
+        res.status(500).json({
+            error: 'Error interno del servidor al obtener las reservas.'
+        });
+    }
+};
+
 
 module.exports = {
   getUsers,
@@ -1718,5 +1773,6 @@ module.exports = {
   getUserCourtsReservations,
   getUserReservationsByDate,
   registerProveedor,
-  registerPromotions
+  registerPromotions,
+  getReservationActive
 };
