@@ -31,7 +31,8 @@ updateSubCourtAndPrices,
 getUserCourtsReservations,
 getUserReservationsByDate,
 registerProveedor,
-registerPromotions
+registerPromotions,
+getReservationActive
 }=require("../controllers/usersController")
 const {
     registerValidator, 
@@ -84,4 +85,5 @@ router.post('/subcourt/:id', createSubcourt);
 router.put('/subcourtPrice/:subcourtId', updateSubCourtAndPrices);
 router.get('/Reservation/:id',getUserCourtsReservations);
 router.get('/ReservationDate/:id',getUserReservationsByDate);//date
+router.get('/userCourts/:Id',getReservationActive);
 module.exports = router;
