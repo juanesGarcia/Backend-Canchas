@@ -34,7 +34,13 @@ registerProveedor,
 registerPromotions,
 getReservationActive,
 getPromotionsByUser,
-uploadImagesServices
+uploadImagesServices,
+getReservationsByDay,
+getReservationsByHour,
+getPeakOffPeakHours,
+getPeriodicReservations,
+getFrequentClients,
+getRevenueByPaymentMethod
 }=require("../controllers/usersController")
 const {
     registerValidator, 
@@ -87,7 +93,14 @@ router.get('/subcourtPrice/:subcourtId', getSubCourtPrice);
 router.post('/subcourt/:id', createSubcourt);
 router.put('/subcourtPrice/:subcourtId', updateSubCourtAndPrices);
 router.get('/Reservation/:id',getUserCourtsReservations);
-router.get('/ReservationDate/:id',getUserReservationsByDate);//date
+router.get('/ReservationDate/:id',getUserReservationsByDate);
 router.get('/userCourts/:Id',getReservationActive);
 router.get('/getPromotions/:id',getPromotionsByUser);
+const biMiddleware = [verifyToken, authorizeRoles('admin')];
+router.get('/analytics/reservationsDays', biMiddleware, getReservationsByDay);
+router.get('/analytics/reservationsHours', biMiddleware, getReservationsByHour);
+router.get('/analytics/HotCold', biMiddleware, getPeakOffPeakHours);
+router.get('/analytics/periodicReservations', biMiddleware, getPeriodicReservations);
+router.get('/analytics/frequentClients', biMiddleware, getFrequentClients);
+router.get('/analytics/revenuePayment', biMiddleware, getRevenueByPaymentMethod)
 module.exports = router;

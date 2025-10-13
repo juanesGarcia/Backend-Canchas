@@ -1934,6 +1934,200 @@ const getPromotionsByUser = async (req, res) => {
   }
 };
 
+// 1. Reservations by Day of the Week
+const getReservationsByDay = async (pool) => {
+    const query = `
+        SELECT
+            TO_CHAR(reservation_date, 'Day') AS dia_semana,
+            COUNT(id) AS total_reservas
+        FROM
+            reservations
+        GROUP BY
+            dia_semana
+        ORDER BY
+            MIN(EXTRACT(DOW FROM reservation_date));
+    `;
+    try {
+        const result = await pool.query(query);
+        return result.rows;
+    } catch (error) {
+        console.error("Error al obtener reservas por día:", error);
+        throw new Error("Fallo al obtener datos de reservas por día.");
+    }
+};
+
+// 2. Total Reservations by Hour (Demand Trend)
+const getReservationsByHour = async (pool) => {
+    const query = `
+        SELECT
+            TO_CHAR(reservation_time, 'HH24') AS hora_inicio,
+            COUNT(id) AS total_reservas
+        FROM
+            reservations
+        GROUP BY
+            hora_inicio
+        ORDER BY
+            hora_inicio ASC;
+    `;
+    try {
+        const result = await pool.query(query);
+        return result.rows;
+    } catch (error) {
+        console.error("Error al obtener reservas por hora:", error);
+        throw new Error("Fallo al obtener datos de reservas por hora.");
+    }
+};
+
+// 3. Peak and Off-Peak Hours (Detection)
+const getPeakOffPeakHours = async (pool) => {
+    const query = `
+        WITH ResumenPorHora AS (
+            SELECT
+                TO_CHAR(reservation_time, 'HH24') AS hora,
+                COUNT(id) AS total_reservas
+            FROM
+                reservations
+            GROUP BY
+                hora
+        )
+        (
+            -- Hot time (Major demand)
+            SELECT
+                'hot' AS tipo,
+                hora,
+                total_reservas
+            FROM
+                ResumenPorHora
+            ORDER BY
+                total_reservas DESC
+            LIMIT 1
+        )
+        UNION ALL
+        (
+            -- Cold time (Minor demand)
+            SELECT
+                'cold' AS tipo,
+                hora,
+                total_reservas
+            FROM
+                ResumenPorHora
+            ORDER BY
+                total_reservas ASC
+            LIMIT 1
+        )
+        ORDER BY tipo DESC;
+    `;
+    try {
+        const result = await pool.query(query);
+        return result.rows;
+    } catch (error) {
+        console.error("Error al obtener horarios pico y valle:", error);
+        throw new Error("Fallo al obtener horarios de máxima y mínima demanda.");
+    }
+};
+
+
+// 4. Total Periodic Reservations (Weekly, Monthly, Yearly)
+const getPeriodicReservations = async (pool) => {
+    const query = `
+        SELECT
+            'Semana' AS periodo,
+            TO_CHAR(reservation_date, 'YYYY-WW') AS identificador,
+            COUNT(id) AS total_reservas
+        FROM
+            reservations
+        GROUP BY
+            periodo, identificador
+        UNION ALL
+        SELECT
+            'Mes' AS periodo,
+            TO_CHAR(reservation_date, 'YYYY-MM') AS identificador,
+            COUNT(id) AS total_reservas
+        FROM
+            reservations
+        GROUP BY
+            periodo, identificador
+        UNION ALL
+        SELECT
+            'Año' AS periodo,
+            TO_CHAR(reservation_date, 'YYYY') AS identificador,
+            COUNT(id) AS total_reservas
+        FROM
+            reservations
+        GROUP BY
+            periodo, identificador
+        ORDER BY
+            periodo, identificador;
+    `;
+    try {
+        const result = await pool.query(query);
+        return result.rows;
+    } catch (error) {
+        console.error("Error al obtener reservas periódicas:", error);
+        throw new Error("Fallo al obtener el histórico de reservas.");
+    }
+};
+
+// 5. Frequent Clients (Top 10)
+const getFrequentClients = async (pool) => {
+    const query = `
+        SELECT
+            user_id,
+            user_name,
+            COUNT(id) AS total_reservas
+        FROM
+            reservations
+        GROUP BY
+            user_id, user_name
+        ORDER BY
+            total_reservas DESC
+        LIMIT 10;
+    `;
+    try {
+        const result = await pool.query(query);
+        return result.rows;
+    } catch (error) {
+        console.error("Error al obtener clientes frecuentes:", error);
+        throw new Error("Fallo al obtener la lista de clientes frecuentes.");
+    }
+};
+
+// 6. Total Revenue by Payment Method
+const getRevenueByPaymentMethod = async (pool) => {
+    const query = `
+        SELECT
+            CASE
+                WHEN transfer = TRUE THEN 'Transferencia / Digital'
+                WHEN transfer = FALSE THEN 'Efectivo / Otro'
+                ELSE 'Medio de Pago No Especificado'
+            END AS medio_pago,
+            COUNT(id) AS total_reservas,
+            SUM(price_reservation) AS recaudo_total
+        FROM
+            reservations
+        GROUP BY
+            medio_pago
+        UNION ALL
+        SELECT
+            'Total General' AS medio_pago,
+            COUNT(id) AS total_reservas,
+            SUM(price_reservation) AS recaudo_total
+        FROM
+            reservations
+        ORDER BY
+            recaudo_total DESC;
+    `;
+    try {
+        const result = await pool.query(query);
+        return result.rows;
+    } catch (error) {
+        console.error("Error al obtener recaudos por medio de pago:", error);
+        throw new Error("Fallo al obtener datos de recaudación.");
+    }
+};
+
+
+
 
 module.exports = {
   getUsers,
@@ -1970,5 +2164,11 @@ module.exports = {
   registerPromotions,
   getReservationActive,
   getPromotionsByUser,
-  uploadImagesServices
+  uploadImagesServices,
+  getReservationsByDay,
+  getReservationsByHour,
+  getPeakOffPeakHours,
+  getPeriodicReservations,
+  getFrequentClients,
+  getRevenueByPaymentMethod
 };
