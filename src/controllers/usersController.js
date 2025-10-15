@@ -81,8 +81,7 @@ const register = async (req, res) => {
           [subcourtId, courtId, subcourtName, now, now, subcourtState]
         );
 
-            const daysOfWeek = ["lunes", "martes", "miercoles", "jueves", "viernes", "sábado", "domingo"];
-
+      const daysOfWeek = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"];
     for (const day of daysOfWeek) {
        const IdCourtPrice = v4();
       await client.query(
@@ -1429,10 +1428,11 @@ const createReservation = async (req, res) => {
         price_reservation,
         transfer,
         phone,
-        user_name
+        user_name,
+        payment_method
     } = req.body;
 
-    console.log(req.body);
+    console.log(subcourtId);
 
     console.log(reservation_date+ 'aca')
 
@@ -1509,8 +1509,9 @@ console.log(dayOfWeek);
                 created_at,
                 updated_at,
                 user_name,
-                phone
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+                phone,
+                payment_method
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,$15)
             RETURNING id, subcourt_id, reservation_date, reservation_time`,
             [
                 reservationId,
@@ -1526,7 +1527,8 @@ console.log(dayOfWeek);
                 now,
                 now,
                 user_name,
-                phone
+                phone,
+                payment_method
             ]
         );
 
@@ -1935,21 +1937,25 @@ const getPromotionsByUser = async (req, res) => {
 };
 
 // 1. Reservations by Day of the Week
-const getReservationsByDay = async (pool) => {
-    const query = `
-        SELECT
-            TO_CHAR(reservation_date, 'Day') AS dia_semana,
-            COUNT(id) AS total_reservas
+const getReservationsByDay =  async (req, res) => {
+  const { id } = req.params; 
+    try {
+  const result = await pool.query( `
+      SELECT
+      TO_CHAR(reservation_date, 'Day') AS dia_semana,
+      COUNT(id) AS total_reservas
         FROM
             reservations
+        where subcourt_id = $1
         GROUP BY
             dia_semana
         ORDER BY
-            MIN(EXTRACT(DOW FROM reservation_date));
-    `;
-    try {
-        const result = await pool.query(query);
-        return result.rows;
+            MIN(EXTRACT(DOW FROM reservation_date));    `,[id]);
+
+    
+    return res.status(200).json(result.rows);
+
+       
     } catch (error) {
         console.error("Error al obtener reservas por día:", error);
         throw new Error("Fallo al obtener datos de reservas por día.");
@@ -1957,36 +1963,41 @@ const getReservationsByDay = async (pool) => {
 };
 
 // 2. Total Reservations by Hour (Demand Trend)
-const getReservationsByHour = async (pool) => {
-    const query = `
+const getReservationsByHour =  async (req, res) => {
+  const { id } = req.params; 
+    try {
+     const result = await pool.query(`
         SELECT
             TO_CHAR(reservation_time, 'HH24') AS hora_inicio,
             COUNT(id) AS total_reservas
         FROM
             reservations
+        WHERE 
+            subcourt_id=$1
         GROUP BY
             hora_inicio
         ORDER BY
             hora_inicio ASC;
-    `;
-    try {
-        const result = await pool.query(query);
-        return result.rows;
+    `,[id]);
+           return res.status(200).json( result.rows);
     } catch (error) {
         console.error("Error al obtener reservas por hora:", error);
         throw new Error("Fallo al obtener datos de reservas por hora.");
     }
 };
 
-// 3. Peak and Off-Peak Hours (Detection)
-const getPeakOffPeakHours = async (pool) => {
-    const query = `
-        WITH ResumenPorHora AS (
+const getPeakOffPeakHours = async (req, res) => {
+    const { id } = req.params; 
+
+    try{ 
+    const result = await pool.query(`
+                        WITH ResumenPorHora AS (
             SELECT
                 TO_CHAR(reservation_time, 'HH24') AS hora,
                 COUNT(id) AS total_reservas
             FROM
                 reservations
+            where subcourt_id =$1
             GROUP BY
                 hora
         )
@@ -2015,117 +2026,161 @@ const getPeakOffPeakHours = async (pool) => {
                 total_reservas ASC
             LIMIT 1
         )
-        ORDER BY tipo DESC;
-    `;
-    try {
-        const result = await pool.query(query);
-        return result.rows;
+        ORDER BY tipo desc;
+    `,[id]);
+    return res.status(200).json( result.rows);
     } catch (error) {
         console.error("Error al obtener horarios pico y valle:", error);
-        throw new Error("Fallo al obtener horarios de máxima y mínima demanda.");
+        return res.status(500).json({
+            success: false,
+            message: "Fallo al obtener horarios de máxima y mínima demanda.",
+            error: error.message
+        });
     }
 };
 
 
-// 4. Total Periodic Reservations (Weekly, Monthly, Yearly)
-const getPeriodicReservations = async (pool) => {
-    const query = `
+// 3. Reservas Periódicas (Semana, Mes, Año)
+// Corregido para aceptar (req, res) y manejar la respuesta.
+ const getPeriodicReservations = async (req, res) => {
+    const { id } = req.params; // Obtenido correctamente de req.params
+    const queryString = (`
+          
         SELECT
-            'Semana' AS periodo,
-            TO_CHAR(reservation_date, 'YYYY-WW') AS identificador,
-            COUNT(id) AS total_reservas
-        FROM
-            reservations
-        GROUP BY
-            periodo, identificador
-        UNION ALL
-        SELECT
-            'Mes' AS periodo,
-            TO_CHAR(reservation_date, 'YYYY-MM') AS identificador,
-            COUNT(id) AS total_reservas
-        FROM
-            reservations
-        GROUP BY
-            periodo, identificador
-        UNION ALL
-        SELECT
-            'Año' AS periodo,
-            TO_CHAR(reservation_date, 'YYYY') AS identificador,
-            COUNT(id) AS total_reservas
-        FROM
-            reservations
-        GROUP BY
-            periodo, identificador
-        ORDER BY
-            periodo, identificador;
-    `;
+    TO_CHAR(reservation_date, 'YYYY') AS ano,
+    TO_CHAR(reservation_date, 'MM') AS mes_numero,
+    -- Puedes usar CASE o una función para obtener el nombre del mes si lo prefieres
+    CASE TO_CHAR(reservation_date, 'MM')
+        WHEN '01' THEN 'Enero'
+        WHEN '02' THEN 'Febrero'
+        WHEN '03' THEN 'Marzo'
+        WHEN '04' THEN 'Abril'
+        WHEN '05' THEN 'Mayo'
+        WHEN '06' THEN 'Junio'
+        WHEN '07' THEN 'Julio'
+        WHEN '08' THEN 'Agosto'
+        WHEN '09' THEN 'Septiembre'
+        WHEN '10' THEN 'Octubre'
+        WHEN '11' THEN 'Noviembre'
+        WHEN '12' THEN 'Diciembre'
+    END AS mes_nombre,
+    COUNT(id) AS total_reservas
+FROM
+    reservations
+WHERE
+    subcourt_id = $1 -- Asegura el filtro por la cancha/sucursal específica
+GROUP BY
+    ano, mes_numero, mes_nombre
+ORDER BY
+    ano DESC, mes_numero DESC;
+    `); // Los parámetros deben ir en la llamada a pool.query, no aquí
+
     try {
-        const result = await pool.query(query);
-        return result.rows;
+        // Ejecución de la consulta, pasando el parámetro UNA SOLA VEZ
+        // (Aunque la query usa $1 tres veces, el array de valores solo necesita un elemento [id])
+        const result = await pool.query(queryString, [id]); 
+        
+        return res.status(200).json(result.rows);
     } catch (error) {
         console.error("Error al obtener reservas periódicas:", error);
-        throw new Error("Fallo al obtener el histórico de reservas.");
+        return res.status(500).json({
+            success: false,
+            message: "Fallo al obtener el histórico de reservas.",
+            error: error.message
+        });
     }
 };
 
-// 5. Frequent Clients (Top 10)
-const getFrequentClients = async (pool) => {
-    const query = `
+
+// 4. Clientes Frecuentes (Top 10)
+// Corregido para aceptar (req, res) y manejar la respuesta.
+const getFrequentClients = async (req, res) => {
+    const { id } = req.params; // Obtenido correctamente de req.params
+    const queryString = (`
         SELECT
             user_id,
             user_name,
             COUNT(id) AS total_reservas
         FROM
             reservations
+        WHERE
+            subcourt_id = $1
         GROUP BY
             user_id, user_name
         ORDER BY
             total_reservas DESC
         LIMIT 10;
-    `;
+    `);
+    
     try {
-        const result = await pool.query(query);
-        return result.rows;
+        const result = await pool.query(queryString, [id]); 
+        
+        return res.status(200).json(result.rows);
     } catch (error) {
         console.error("Error al obtener clientes frecuentes:", error);
-        throw new Error("Fallo al obtener la lista de clientes frecuentes.");
+        return res.status(500).json({
+            success: false,
+            message: "Fallo al obtener la lista de clientes frecuentes.",
+            error: error.message
+        });
     }
 };
 
-// 6. Total Revenue by Payment Method
-const getRevenueByPaymentMethod = async (pool) => {
-    const query = `
-        SELECT
-            CASE
-                WHEN transfer = TRUE THEN 'Transferencia / Digital'
-                WHEN transfer = FALSE THEN 'Efectivo / Otro'
-                ELSE 'Medio de Pago No Especificado'
-            END AS medio_pago,
-            COUNT(id) AS total_reservas,
-            SUM(price_reservation) AS recaudo_total
-        FROM
-            reservations
-        GROUP BY
-            medio_pago
-        UNION ALL
-        SELECT
-            'Total General' AS medio_pago,
-            COUNT(id) AS total_reservas,
-            SUM(price_reservation) AS recaudo_total
-        FROM
-            reservations
-        ORDER BY
-            recaudo_total DESC;
-    `;
+// 5. Recaudo Total por Método de Pago
+// Corregido para aceptar (req, res) y manejar la respuesta.
+const getRevenueByPaymentMethod = async (req, res) => {
+    const { id } = req.params; // Obtenido correctamente de req.params
+    const queryString = ( `
+        
+              WITH RecaudoDetalle AS (
+          SELECT
+              payment_method,
+              COUNT(id) AS total_reservas,
+              SUM(price_reservation) AS recaudo_total
+          FROM
+              reservations
+          WHERE
+              subcourt_id = $1
+          GROUP BY
+              payment_method
+
+          UNION ALL
+
+        
+          SELECT
+              'Total General' AS payment_method,
+              COUNT(id) AS total_reservas,
+              SUM(price_reservation) AS recaudo_total
+          FROM
+              reservations
+          WHERE
+              subcourt_id = $1
+      )
+      SELECT 
+          payment_method,
+          total_reservas,
+          recaudo_total
+      FROM
+          RecaudoDetalle
+      ORDER BY
+          CASE WHEN payment_method = 'Total General' THEN 1 ELSE 0 END, 
+          recaudo_total DESC;
+
+    `);
+
     try {
-        const result = await pool.query(query);
-        return result.rows;
+        const result = await pool.query(queryString, [id]); // Pasar [id] al query
+        
+        return res.status(200).json(result.rows);
     } catch (error) {
         console.error("Error al obtener recaudos por medio de pago:", error);
-        throw new Error("Fallo al obtener datos de recaudación.");
+        return res.status(500).json({
+            success: false,
+            message: "Fallo al obtener datos de recaudación.",
+            error: error.message
+        });
     }
 };
-
 
 
 
