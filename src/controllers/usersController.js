@@ -67,8 +67,8 @@ const register = async (req, res) => {
     const now = new Date();
 
     await client.query(
-      "insert into courts(id, name, address, city, phone, court_type, is_public, description, created_at, updated_at, state, user_id) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
-      [courtId, courtName, courtAddress, courtCity, courtPhone, court_type, is_public, description, now, now, state, user_id]
+      "insert into courts(id, name, address, city, phone, court_type, is_public, description, created_at, updated_at, state, user_id,price) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
+      [courtId, courtName, courtAddress, courtCity, courtPhone, court_type, is_public, description, now, now, state, user_id,price]
     );
 
   
@@ -1188,6 +1188,34 @@ JOIN
   courts c ON sc.court_id = c.id
 WHERE
   c.user_id = $1;
+    `, [id]);
+
+const subcourts = result.rows; // El resultado de la consulta es un array de filas.
+res.status(200).json({ success: true, subcourts: subcourts });
+  } catch (error) {
+    console.error("Error al obtener subcanchas:", error.message);
+    res.status(500).json({ error: "Error al obtener subcanchas: " + error.message });
+  }
+};
+
+
+const getSubCourtsName = async (req, res) => {
+  const { id } = req.params;
+  console.log(id);
+
+  try {
+    const result = await pool.query(`
+SELECT
+  sc.id AS subcourt_id,
+  sc.name AS subcourt_name,
+  sc.state,
+  c.id
+FROM
+  subcourts sc
+JOIN
+  courts c ON sc.court_id = c.id
+WHERE
+  sc.id= $1;
     `, [id]);
 
 const subcourts = result.rows; // El resultado de la consulta es un array de filas.
@@ -2424,7 +2452,7 @@ const getFrequentClients = async (req, res) => {
     const { id } = req.params;
     const { year, month } = req.query;
 
-
+console.log("data"+ id,year,month);
     let query = `
         SELECT
             user_id,
@@ -2460,6 +2488,7 @@ const getFrequentClients = async (req, res) => {
 
     try {
         const result = await pool.query(query, params);
+        console.log(result.rows);
         return res.json(result.rows);
     } catch (error) {
         console.error("Error al obtener clientes frecuentes:", error);
@@ -2477,13 +2506,9 @@ const getRevenueByPaymentMethod = async (req, res) => {
 console.log(year+month)
         let query = `
             SELECT
-                CASE
-                    WHEN LOWER(payment_method) = 'transferencia' THEN 'Transferencia / Digital'
-                    WHEN LOWER(payment_method) IN ('efectivo', 'tarjeta') THEN 'Efectivo / Otro'
-                    ELSE 'Medio de Pago No Especificado'
-                END AS medio_pago,
+                payment_method AS medio_pago,
                 COUNT(id) AS total_reservas,
-                SUM(price_reservation) AS recaudo_total
+                SUM(transfer) AS recaudo_total
             FROM reservations
             WHERE subcourt_id = $1
               AND state = true
@@ -2561,6 +2586,7 @@ module.exports = {
   deleteReservation,
   getSubcourtPriceByDate,
   updateReservation,
-  sendReservationReminder
+  sendReservationReminder,
+  getSubCourtsName
 
 };
