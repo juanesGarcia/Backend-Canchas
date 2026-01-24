@@ -13,7 +13,7 @@ app.use(morgan('dev'))
 //initialize middlewares
 app.use(express.json());
 app.use(cors({
-    origin: ['http://localhost:5173', 'https://canchas-colombia.vercel.app'],
+    origin: 'https://canchas-colombia.vercel.app',
     credentials: true
   }));
 const authRoutes=require('./routes/users.routes');
