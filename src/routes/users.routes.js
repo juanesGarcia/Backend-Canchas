@@ -40,7 +40,12 @@ getReservationsByHour,
 getPeakOffPeakHours,
 getPeriodicReservations,
 getFrequentClients,
-getRevenueByPaymentMethod
+getRevenueByPaymentMethod,
+deleteReservation,
+getSubcourtPriceByDate,
+updateReservation,
+sendReservationReminder,
+getSubCourtsName
 }=require("../controllers/usersController")
 const {
     registerValidator, 
@@ -84,11 +89,14 @@ router.get('/courts', getCourts);
 router.get('/services', getServices);
 router.get('/courts/:id',getCourtById);
 router.get('/subCourts/:id', getSubCourts);
+router.get('/subCourtName/:id', getSubCourtsName);
 router.get('/getReservations/:subcourtId', getReservationsBySubcourt);
 router.put('/courts/:id', userAuth, updateCourt);
 router.delete('/courts/:id', userAuth, deleteCourt);
+router.post('/deleteReservations/:id', deleteReservation);
 router.delete('/subcourts/:subcourtId', deleteSubcourt);
 router.post('/reservations/:subcourtId', createReservation);
+router.put('/reservations/:subcourtId', updateReservation);
 router.get('/subcourtPrice/:subcourtId', getSubCourtPrice);
 router.post('/subcourt/:id', createSubcourt);
 router.put('/subcourtPrice/:subcourtId', updateSubCourtAndPrices);
@@ -97,10 +105,13 @@ router.get('/ReservationDate/:id',getUserReservationsByDate);
 router.get('/userCourts/:Id',getReservationActive);
 router.get('/getPromotions/:id',getPromotionsByUser);
 const biMiddleware = [verifyToken, authorizeRoles('admin')];
-router.get('/analytics/reservationsDays', biMiddleware, getReservationsByDay);
-router.get('/analytics/reservationsHours', biMiddleware, getReservationsByHour);
-router.get('/analytics/HotCold', biMiddleware, getPeakOffPeakHours);
-router.get('/analytics/periodicReservations', biMiddleware, getPeriodicReservations);
-router.get('/analytics/frequentClients', biMiddleware, getFrequentClients);
-router.get('/analytics/revenuePayment', biMiddleware, getRevenueByPaymentMethod)
+router.get('/analytics/reservationsDays/:id', getReservationsByDay);
+router.get('/analytics/reservationsHours/:id', getReservationsByHour);
+router.get('/analytics/HotCold/:id', getPeakOffPeakHours);
+router.get('/analytics/periodicReservations/:id', getPeriodicReservations);
+router.get('/analytics/frequentClients/:id',getFrequentClients);
+router.get('/analytics/revenuePayment/:id', getRevenueByPaymentMethod);
+router.get('/:id/price', getSubcourtPriceByDate);
+router.post("/reservations/:reservationId/reminder", sendReservationReminder);
+
 module.exports = router;

@@ -13,7 +13,7 @@
     "cookie-parse": "^0.4.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
-    "dotenv": "^16.5.0",
+    "dotenv": "^16.6.1",
     "express": "^5.1.0",
     "express-validator": "^7.2.1",
     "firebase-admin": "^13.4.0",
@@ -24,6 +24,7 @@
     "passport-jwt": "^4.0.1",
     "pg": "^8.16.2",
     "sharp": "^0.34.2",
+    "twilio": "^5.10.3",
     "uuid": "^11.1.0"
   }
 }

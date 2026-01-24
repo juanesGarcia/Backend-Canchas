@@ -10,6 +10,10 @@ const {
 } = require("../firebase");
 const fs = require("fs").promises;
 const path = require("path");
+const accountSid = process.env.TWILIO_ACCOUNT_SID;
+const authToken = process.env.TWILIO_AUTH_TOKEN;
+
+const client = require('twilio')(accountSid, authToken);
 
 const getUsers = async (req, res) => {
   try {
@@ -63,8 +67,8 @@ const register = async (req, res) => {
     const now = new Date();
 
     await client.query(
-      "insert into courts(id, name, address, city, phone, court_type, is_public, description, created_at, updated_at, state, user_id) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
-      [courtId, courtName, courtAddress, courtCity, courtPhone, court_type, is_public, description, now, now, state, user_id]
+      "insert into courts(id, name, address, city, phone, court_type, is_public, description, created_at, updated_at, state, user_id,price) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
+      [courtId, courtName, courtAddress, courtCity, courtPhone, court_type, is_public, description, now, now, state, user_id,price]
     );
 
   
@@ -81,7 +85,8 @@ const register = async (req, res) => {
           [subcourtId, courtId, subcourtName, now, now, subcourtState]
         );
 
-      const daysOfWeek = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"];
+            const daysOfWeek = ["lunes", "martes", "miercoles", "jueves", "viernes", "sábado", "domingo"];
+
     for (const day of daysOfWeek) {
        const IdCourtPrice = v4();
       await client.query(
@@ -1193,6 +1198,34 @@ res.status(200).json({ success: true, subcourts: subcourts });
   }
 };
 
+
+const getSubCourtsName = async (req, res) => {
+  const { id } = req.params;
+  console.log(id);
+
+  try {
+    const result = await pool.query(`
+SELECT
+  sc.id AS subcourt_id,
+  sc.name AS subcourt_name,
+  sc.state,
+  c.id
+FROM
+  subcourts sc
+JOIN
+  courts c ON sc.court_id = c.id
+WHERE
+  sc.id= $1;
+    `, [id]);
+
+const subcourts = result.rows; // El resultado de la consulta es un array de filas.
+res.status(200).json({ success: true, subcourts: subcourts });
+  } catch (error) {
+    console.error("Error al obtener subcanchas:", error.message);
+    res.status(500).json({ error: "Error al obtener subcanchas: " + error.message });
+  }
+};
+
 const createSubcourt = async (req, res) => {
   console.log(req.body);
 
@@ -1422,7 +1455,7 @@ const createReservation = async (req, res) => {
         user_id,
         reservation_date,
         reservation_time,
-        duration,
+        duration, 
         end_time,
         state,
         price_reservation,
@@ -1432,114 +1465,74 @@ const createReservation = async (req, res) => {
         payment_method
     } = req.body;
 
-    console.log(subcourtId);
-
-    console.log(reservation_date+ 'aca')
-
     try {
-        // Validación de precio basada en la lógica de la respuesta anterior
-        const date = new Date(`${reservation_date}T00:00:00`);
-        const formatter = new Intl.DateTimeFormat('es-ES', { weekday: 'long', timeZone: 'America/Bogota' });
-        const dayOfWeek = formatter.format(date).toLowerCase();
-        // Paso 1: Obtener el court_id a partir del subcourt_id
-        const subcourtResult = await pool.query('SELECT court_id FROM subcourts WHERE id = $1', [subcourtId]);
-
-        if (subcourtResult.rows.length === 0) {
-            return res.status(404).json({ error: "Subcancha no encontrada." });
-        }
-console.log(dayOfWeek);
-        // Paso 2: Buscar el precio en la tabla court_prices
-        const priceResult = await pool.query(
-            `SELECT price FROM subcourt_prices WHERE subcourt_id= $1 AND day_of_week = $2`,
-            [subcourtId, dayOfWeek]
-        );
-
-        if (priceResult.rows.length === 0) {
-            return res.status(404).json({
-                error: `No se encontró precio para la cancha ${subcourtId} en el día ${dayOfWeek}.`
-            });
-        }
-
-        // --- LÓGICA DE VALIDACIÓN DE SOLAPAMIENTO DE RESERVAS ---
-        
-        // 1. Convertir la hora de inicio y fin a objetos de fecha para compararlos
-        const startDateTime = new Date(`${reservation_date}T${reservation_time}:00`);
-        const endDateTime = new Date(startDateTime.getTime() + duration * 60000); // Suma la duración en milisegundos
-
-        // 2. Consultar la base de datos para buscar reservas existentes que se solapen
-        const existingReservation = await pool.query(
-            `SELECT * FROM reservations 
-             WHERE subcourt_id = $1
-             AND reservation_date = $2
-             AND (
-                 (reservation_time < $3 AND end_time > $4) OR -- Reserva existente que empieza antes y termina después
-                 (reservation_time >= $3 AND reservation_time < $4) OR -- Reserva existente que empieza en medio
-                 (end_time > $3 AND end_time <= $4) -- Reserva existente que termina en medio
-             )`,
-            [
-                subcourtId,
-                reservation_date,
-                endDateTime.toTimeString().split(' ')[0].substring(0, 5), // Hora de fin
-                startDateTime.toTimeString().split(' ')[0].substring(0, 5) // Hora de inicio
-            ]
-        );
-
-
-        console.log(existingReservation)
-        if (existingReservation.rowCount > 0) {
-            return res.status(409).json({ error: "La subcancha ya está reservada en este lapso de tiempo." });
-        }
-
-        // 3. Si no hay solapamiento, proceder con la inserción
         const reservationId = v4();
         const now = new Date();
 
         const result = await pool.query(
             `INSERT INTO reservations (
-                id,
-                user_id,
-                subcourt_id,
-                reservation_date,
-                reservation_time,
-                duration,
-                end_time,
-                state,
-                price_reservation,
-                transfer,
-                created_at,
-                updated_at,
-                user_name,
-                phone,
-                payment_method
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,$15)
+                id, user_id, subcourt_id, reservation_date, reservation_time, duration,
+                end_time, state, price_reservation, transfer, created_at, updated_at,
+                user_name, phone, payment_method
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
             RETURNING id, subcourt_id, reservation_date, reservation_time`,
             [
-                reservationId,
-                user_id,
-                subcourtId,
-                reservation_date,
-                reservation_time,
-                duration,
-                end_time, // ¡ATENCIÓN! La variable end_time del body no se usa en la validación, necesitas calcularla en el frontend o aquí. Si quieres usarla, asegúrate de que sea precisa.
-                state,
-                price_reservation,
-                transfer,
-                now,
-                now,
-                user_name,
-                phone,
-                payment_method
+                reservationId, user_id, subcourtId, reservation_date, reservation_time, duration,
+                end_time, 
+                state, price_reservation, transfer, now, now, user_name, phone, payment_method
             ]
         );
+        
+        const rawPhoneNumber = phone ? phone.replace(/\D/g, '') : '573186699925'; 
+        const phoneNumberForTwilio = `whatsapp:+${rawPhoneNumber}`;
+
+        const dateForTemplate = new Date(reservation_date + 'T00:00:00').toLocaleDateString('es-CO', { 
+            weekday: 'long', day: 'numeric', month: 'long' 
+        });
+
+        const timeForTemplate = new Date(`${reservation_date}T${reservation_time}:00`).toLocaleTimeString('es-CO', { 
+            hour: 'numeric', minute: '2-digit', hour12: true 
+        });
+        
+        const durationInHours = duration / 60;
+        const durationForTemplate = duration % 60 === 0 
+            ? `${durationInHours} hora${durationInHours > 1 ? 's' : ''}` 
+            : `${duration} minutos`;
+            
+        const priceForTemplate = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP' }).format(price_reservation);
+
+        const messageBody = `¡Hola ${user_name}! Tu reserva ha sido confirmada.
+Cancha: ${result.rows[0].subcourt_id}
+Fecha: ${dateForTemplate}
+Hora: ${timeForTemplate}
+Duración: ${durationForTemplate}
+Precio: ${priceForTemplate}
+
+¡Gracias por tu reserva!`;
+        
+           try {
+          client.messages
+    .create({
+        body: messageBody,
+        from: 'whatsapp:+14155238886',
+        to: 'whatsapp:+573186699925'
+    })
+    .then(message => console.log(message.sid))
+    .done();
+        } catch (whatsappError) {
+            // Loguear el error de Twilio para depuración, pero no fallar el HTTP 500
+            console.error('Error al enviar WhatsApp (Twilio):', whatsappError.message);
+            // Puedes añadir aquí lógica para reintentar o registrar el fallo del envío.
+        }
+
 
         res.status(201).json({
             success: true,
-            message: "Reserva creada exitosamente.",
             reservation: result.rows[0]
         });
 
     } catch (error) {
-        console.error("Error al crear la reserva:", error.message);
+        console.error(error.message);
         if (error.code === '23503') {
             return res.status(400).json({
                 error: "El subcourt_id o client_id proporcionado no existe."
@@ -1551,6 +1544,70 @@ console.log(dayOfWeek);
         });
     }
 };
+
+const deleteReservation = async (req, res) => {
+    const { id } = req.params;
+console.log(id);
+    try {
+        // Verificar si la reserva existe
+        const existingReservation = await pool.query(
+            `SELECT * FROM reservations WHERE id = $1`,
+            [id]
+        );
+
+        if (existingReservation.rows.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: "La reserva no existe o ya fue eliminada."
+            });
+        }
+
+        // Eliminar la reserva
+        await pool.query(`UPDATE reservations SET state = false, updated_at = NOW() WHERE id = $1`, [id]);
+
+
+        // (Opcional) Enviar notificación por WhatsApp
+        const { user_name, phone, reservation_date, reservation_time } = existingReservation.rows[0];
+        const rawPhoneNumber = phone ? phone.replace(/\D/g, '') : null;
+        const phoneNumberForTwilio = rawPhoneNumber ? `whatsapp:+${rawPhoneNumber}` : null;
+
+        if (phoneNumberForTwilio) {
+            try {
+                const dateForTemplate = new Date(reservation_date + 'T00:00:00').toLocaleDateString('es-CO', { 
+                    weekday: 'long', day: 'numeric', month: 'long' 
+                });
+                const timeForTemplate = new Date(`${reservation_date}T${reservation_time}:00`).toLocaleTimeString('es-CO', { 
+                    hour: 'numeric', minute: '2-digit', hour12: true 
+                });
+
+                const messageBody = `Hola ${user_name}, tu reserva para el día ${dateForTemplate} a las ${timeForTemplate} ha sido cancelada correctamente.`;
+
+                await client.messages.create({
+                    body: messageBody,
+                    from: 'whatsapp:+14155238886',
+                    to: phoneNumberForTwilio
+                });
+            } catch (twilioError) {
+                console.error('Error al enviar notificación de cancelación:', twilioError.message);
+            }
+        }
+
+        res.status(200).json({
+            success: true,
+            message: "Reserva eliminada correctamente."
+        });
+
+    } catch (error) {
+        console.error('Error al eliminar reserva:', error.message);
+        res.status(500).json({
+            success: false,
+            error: "Error interno del servidor al eliminar la reserva.",
+            details: error.message
+        });
+    }
+};
+
+
 const getReservationsBySubcourt = async (req, res) => {
     const { subcourtId } = req.params;
 
@@ -1574,6 +1631,185 @@ const getReservationsBySubcourt = async (req, res) => {
         });
     }
 };
+
+const sendReservationReminder = async (req, res) => {
+  const { reservationId } = req.params;
+
+  try {
+    // 1️⃣ Buscar la reserva
+    const result = await pool.query(
+      `SELECT * FROM reservations WHERE id = $1`,
+      [reservationId]
+    );
+
+    if (!result.rows.length) {
+      return res.status(404).json({ error: "Reserva no encontrada" });
+    }
+
+    const reservation = result.rows[0];
+
+    // 2️⃣ Formatear teléfono
+    const rawPhone = reservation.phone.replace(/\D/g, "");
+    const phoneForTwilio = `whatsapp:+${rawPhone}`;
+
+    // 3️⃣ Formatear fecha
+    const dateForTemplate = new Date(reservation.reservation_date + "T00:00:00")
+      .toLocaleDateString("es-CO", { weekday: "long", day: "numeric", month: "long" });
+
+    // 4️⃣ Formatear hora
+    const timeForTemplate = new Date(`${reservation.reservation_date}T${reservation.reservation_time}:00`)
+      .toLocaleTimeString("es-CO", { hour: "numeric", minute: "2-digit", hour12: true });
+
+    // 5️⃣ Duración
+    const durationHours = reservation.duration / 60;
+    const durationForTemplate =
+      reservation.duration % 60 === 0
+        ? `${durationHours} hora${durationHours > 1 ? "s" : ""}`
+        : `${reservation.duration} minutos`;
+
+    // 6️⃣ Precio
+    const priceForTemplate = new Intl.NumberFormat("es-CO", {
+      style: "currency",
+      currency: "COP"
+    }).format(reservation.price_reservation);
+
+    // 7️⃣ Mensaje
+    const messageBody = `🔔 *Recordatorio de tu reserva*
+
+Hola ${reservation.user_name}
+
+Cancha: ${reservation.subcourt_id}
+Fecha: ${dateForTemplate}
+Hora: ${timeForTemplate}
+Duración: ${durationForTemplate}
+Precio: ${priceForTemplate}
+
+Te esperamos 👌`;
+
+    // 8️⃣ Enviar WhatsApp
+    try {
+      await client.messages.create({
+        body: messageBody,
+        from: "whatsapp:+14155238886",
+        to: phoneForTwilio
+      });
+    } catch (twilioError) {
+      console.error("Twilio error:", twilioError.message);
+    }
+
+    res.json({ success: true, message: "Recordatorio enviado" });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Error enviando recordatorio" });
+  }
+};
+
+
+const updateReservation = async (req, res) => {
+    const { id } = req.params;
+    const data = req.body;
+
+    try {
+        // 1️⃣ Verificar que existe
+        const existing = await pool.query(
+            `SELECT * FROM reservations WHERE id = $1`,
+            [id]
+        );
+
+        if (existing.rows.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: "La reserva no existe"
+            });
+        }
+
+        // 2️⃣ Construir UPDATE dinámico
+        const fields = [];
+        const values = [];
+        let index = 1;
+
+        for (const key in data) {
+            if (data[key] !== undefined && data[key] !== null && data[key] !== "") {
+                fields.push(`${key} = $${index}`);
+                values.push(data[key]);
+                index++;
+            }
+        }
+
+        // Siempre actualizar updated_at
+        fields.push(`updated_at = NOW()`);
+
+        if (fields.length === 1) {
+            return res.status(400).json({
+                success: false,
+                message: "No se enviaron datos para actualizar"
+            });
+        }
+
+        const query = `
+            UPDATE reservations
+            SET ${fields.join(", ")}
+            WHERE id = $${index}
+            RETURNING *
+        `;
+
+        values.push(id);
+
+        const result = await pool.query(query, values);
+        const updated = result.rows[0];
+
+        // 3️⃣ WhatsApp si cambió algo importante
+        if (updated.phone && (data.reservation_date || data.reservation_time || data.price_reservation)) {
+            try {
+                const rawPhone = updated.phone.replace(/\D/g, '');
+                const phoneNumberForTwilio = `whatsapp:+${rawPhone}`;
+
+                const dateForTemplate = new Date(updated.reservation_date + 'T00:00:00')
+                    .toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' });
+
+                const timeForTemplate = new Date(`${updated.reservation_date}T${updated.reservation_time}:00`)
+                    .toLocaleTimeString('es-CO', { hour: 'numeric', minute: '2-digit', hour12: true });
+
+                const priceForTemplate = new Intl.NumberFormat('es-CO', {
+                    style: 'currency',
+                    currency: 'COP'
+                }).format(updated.price_reservation);
+
+                const msg = `Hola ${updated.user_name}, tu reserva fue modificada:
+
+📅 ${dateForTemplate}
+⏰ ${timeForTemplate}
+💰 ${priceForTemplate}
+
+Si tienes dudas escríbenos.`;
+
+                await client.messages.create({
+                    body: msg,
+                    from: 'whatsapp:+14155238886',
+                    to: phoneNumberForTwilio
+                });
+
+            } catch (err) {
+                console.error("Error WhatsApp update:", err.message);
+            }
+        }
+
+        return res.status(200).json({
+            success: true,
+            reservation: updated
+        });
+
+    } catch (error) {
+        console.error("Error update:", error.message);
+        res.status(500).json({
+            success: false,
+            error: "Error interno al actualizar",
+            details: error.message
+        });
+    }
+};
+
 
 const getSubCourtPrice= async (req, res) => {
     const { subcourtId } = req.params;
@@ -1755,15 +1991,16 @@ const getUserReservationsByDate = async (req, res) => {
                 sc.name AS subcourt_name,
                 c.id AS court_id,
                 c.name AS court_name,
-                r.user_id
+                r.user_id,
+                r.missing_quantity 
             FROM
                 reservations r
             JOIN
                 subcourts sc ON r.subcourt_id = sc.id
             JOIN
-                courts c ON sc.court_id = c.id
+                courts c ON sc.court_id = c.id            
             WHERE
-                sc.id = $1 AND r.reservation_date = $2
+                sc.id = $1 AND r.reservation_date = $2 and r.state = true
             ORDER BY
                 r.reservation_time ASC;
             `,
@@ -1842,6 +2079,63 @@ const registerProveedor = async (req, res) => {
   }
 };
 
+const getSubcourtPriceByDate = async (req, res) => {
+  try {
+    const { id } = req.params; 
+    const { reservationDate } = req.query; 
+
+    if (!id || !reservationDate) {
+      return res.status(400).json({
+        success: false,
+        error: "El ID de la subcancha y la fecha son obligatorios."
+      });
+    }
+
+    // ✅ Crear la fecha de forma local para evitar desfase
+    const [year, month, day] = reservationDate.split('-').map(Number);
+    const localDate = new Date(year, month - 1, day); // crea en hora local
+    const dayOfWeek = localDate
+      .toLocaleString('es-ES', { weekday: 'long', timeZone: 'America/Bogota' })
+      .toLowerCase();
+
+    console.log("📅 Fecha recibida:", reservationDate);
+    console.log("🗓️ Día calculado:", dayOfWeek);
+
+    // 🔍 Consultar el precio
+    const result = await pool.query(
+      `
+      SELECT price, day_of_week
+      FROM subcourt_prices
+      WHERE subcourt_id = $1 AND LOWER(day_of_week) = $2
+      LIMIT 1;
+      `,
+      [id, dayOfWeek]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: `No se encontró precio configurado para el día "${dayOfWeek}".`
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Precio encontrado exitosamente.",
+      price: result.rows[0].price,
+      day_of_week: result.rows[0].day_of_week
+    });
+
+  } catch (error) {
+    console.error("Error al obtener el precio:", error.message);
+    res.status(500).json({
+      success: false,
+      error: "Error interno al obtener el precio.",
+      details: error.message
+    });
+  }
+};
+
 const getReservationActive = async (req, res) => {
     const { Id } = req.params;
     console.log("ID recibido:", Id); // Log para verificar la entrada
@@ -1865,13 +2159,15 @@ const getReservationActive = async (req, res) => {
             JOIN
                 courts c ON sc.court_id = c.id
             WHERE
-                c.user_id = $1 and r.reservation_date>=now()
+                c.user_id = $1 
+                 AND r.reservation_date >= date_trunc('day', now() AT TIME ZONE 'America/Bogota')
             ORDER BY
                 r.reservation_date DESC, r.reservation_time DESC
             `,
             [Id]
         );
 
+        
         console.log(`Reservas encontradas para ID ${Id}: ${result.rows.length}`);
         
         // El estado HTTP 200 es correcto
@@ -1937,251 +2233,312 @@ const getPromotionsByUser = async (req, res) => {
 };
 
 // 1. Reservations by Day of the Week
-const getReservationsByDay =  async (req, res) => {
-  const { id } = req.params; 
+const getReservationsByDay = async (req, res) => {
+    const { id } = req.params;
+    const { year, month } = req.query;
+
+    let query = `
+        SELECT
+            TRIM(TO_CHAR(reservation_date, 'Day')) AS dia_semana,
+            EXTRACT(DOW FROM reservation_date) AS orden,
+            COUNT(id) AS total_reservas
+        FROM reservations
+        WHERE subcourt_id = $1
+          AND state = true
+    `;
+
+    const params = [id];
+    let paramIndex = 2;
+
+    if (year) {
+        query += ` AND EXTRACT(YEAR FROM reservation_date) = $${paramIndex} `;
+        params.push(year);
+        paramIndex++;
+    }
+
+    if (month) {
+        query += ` AND EXTRACT(MONTH FROM reservation_date) = $${paramIndex} `;
+        params.push(month);
+        paramIndex++;
+    }
+
+    query += `
+        GROUP BY dia_semana, orden
+        ORDER BY orden ASC
+    `;
+
     try {
-  const result = await pool.query( `
-      SELECT
-      TO_CHAR(reservation_date, 'Day') AS dia_semana,
-      COUNT(id) AS total_reservas
-        FROM
-            reservations
-        where subcourt_id = $1
-        GROUP BY
-            dia_semana
-        ORDER BY
-            MIN(EXTRACT(DOW FROM reservation_date));    `,[id]);
+        const result = await pool.query(query, params);
+        return res.json(result.rows);
 
-    
-    return res.status(200).json(result.rows);
-
-       
     } catch (error) {
         console.error("Error al obtener reservas por día:", error);
-        throw new Error("Fallo al obtener datos de reservas por día.");
+        return res.status(500).json({
+            error: "Fallo al obtener datos de reservas por día."
+        });
     }
 };
 
+
 // 2. Total Reservations by Hour (Demand Trend)
-const getReservationsByHour =  async (req, res) => {
-  const { id } = req.params; 
-    try {
-     const result = await pool.query(`
+const getReservationsByHour = async (req, res) => {
+    const { id } = req.params;
+    const { year, month } = req.query;
+  console.log('dwdwdw'+year+month)
+
+    let query = `
         SELECT
             TO_CHAR(reservation_time, 'HH24') AS hora_inicio,
             COUNT(id) AS total_reservas
-        FROM
-            reservations
-        WHERE 
-            subcourt_id=$1
-        GROUP BY
-            hora_inicio
-        ORDER BY
-            hora_inicio ASC;
-    `,[id]);
-           return res.status(200).json( result.rows);
+        FROM reservations
+        WHERE subcourt_id = $1 AND state = true
+    `;
+    const params = [id];
+    let paramIndex = 2;
+    // Filtro dinámico por año
+    if (year) {
+        query += ` AND EXTRACT(YEAR FROM reservation_date) = $${paramIndex} `;
+        params.push(Number(year));
+        paramIndex++;
+    }
+
+    // Filtro dinámico por mes
+    if (month) {
+        query += ` AND EXTRACT(MONTH FROM reservation_date) = $${paramIndex} `;
+        params.push(month);
+        paramIndex++;
+    }
+
+    query += `
+        GROUP BY hora_inicio
+        ORDER BY hora_inicio ASC;
+    `;
+
+    try {
+        const result = await pool.query(query, params);
+        return res.json(result.rows);
     } catch (error) {
         console.error("Error al obtener reservas por hora:", error);
-        throw new Error("Fallo al obtener datos de reservas por hora.");
+        return res.status(500).json({
+            error: "Fallo al obtener datos de reservas por hora."
+        });
     }
 };
 
-const getPeakOffPeakHours = async (req, res) => {
-    const { id } = req.params; 
 
-    try{ 
-    const result = await pool.query(`
-                        WITH ResumenPorHora AS (
-            SELECT
-                TO_CHAR(reservation_time, 'HH24') AS hora,
-                COUNT(id) AS total_reservas
-            FROM
-                reservations
-            where subcourt_id =$1
-            GROUP BY
-                hora
+
+// 3. Peak and Off-Peak Hours (Detection)
+const getPeakOffPeakHours = async (req, res) => {
+    const { id } = req.params;
+    const { year, month } = req.query;
+
+    let baseQuery = `
+        SELECT
+            TO_CHAR(reservation_time, 'HH24') AS hora,
+            COUNT(id) AS total_reservas
+        FROM reservations
+        WHERE subcourt_id = $1 AND state = true
+    `;
+    const params = [id];
+    let paramIndex = 2;
+    // Filtro por año
+    if (year) {
+        baseQuery += ` AND EXTRACT(YEAR FROM reservation_date) = $${paramIndex} `;
+        params.push(year);
+        paramIndex++;
+    }
+
+    // Filtro por mes
+    if (month) {
+        baseQuery += ` AND EXTRACT(MONTH FROM reservation_date) = $${paramIndex} `;
+        params.push(month);
+        paramIndex++;
+    }
+
+    const query = `
+        WITH ResumenPorHora AS (
+            ${baseQuery}
+            GROUP BY hora
         )
         (
-            -- Hot time (Major demand)
             SELECT
                 'hot' AS tipo,
                 hora,
                 total_reservas
-            FROM
-                ResumenPorHora
-            ORDER BY
-                total_reservas DESC
+            FROM ResumenPorHora
+            ORDER BY total_reservas DESC
             LIMIT 1
         )
         UNION ALL
         (
-            -- Cold time (Minor demand)
             SELECT
                 'cold' AS tipo,
                 hora,
                 total_reservas
-            FROM
-                ResumenPorHora
-            ORDER BY
-                total_reservas ASC
+            FROM ResumenPorHora
+            ORDER BY total_reservas ASC
             LIMIT 1
         )
-        ORDER BY tipo desc;
-    `,[id]);
-    return res.status(200).json( result.rows);
+        ORDER BY tipo DESC;
+    `;
+
+    try {
+        const result = await pool.query(query, params);
+        return res.json(result.rows);
     } catch (error) {
-        console.error("Error al obtener horarios pico y valle:", error);
+        console.error("Error al obtener horarios pico/valle:", error);
         return res.status(500).json({
-            success: false,
-            message: "Fallo al obtener horarios de máxima y mínima demanda.",
-            error: error.message
+            error: "Fallo al obtener horarios de máxima y mínima demanda."
         });
     }
 };
 
 
-// 3. Reservas Periódicas (Semana, Mes, Año)
-// Corregido para aceptar (req, res) y manejar la respuesta.
- const getPeriodicReservations = async (req, res) => {
-    const { id } = req.params; // Obtenido correctamente de req.params
-    const queryString = (`
-          
+
+const getPeriodicReservations = async (req, res) => {
+    const { id } = req.params;
+    const { year, month } = req.query;
+
+    let query = `
         SELECT
-    TO_CHAR(reservation_date, 'YYYY') AS ano,
-    TO_CHAR(reservation_date, 'MM') AS mes_numero,
-    -- Puedes usar CASE o una función para obtener el nombre del mes si lo prefieres
-    CASE TO_CHAR(reservation_date, 'MM')
-        WHEN '01' THEN 'Enero'
-        WHEN '02' THEN 'Febrero'
-        WHEN '03' THEN 'Marzo'
-        WHEN '04' THEN 'Abril'
-        WHEN '05' THEN 'Mayo'
-        WHEN '06' THEN 'Junio'
-        WHEN '07' THEN 'Julio'
-        WHEN '08' THEN 'Agosto'
-        WHEN '09' THEN 'Septiembre'
-        WHEN '10' THEN 'Octubre'
-        WHEN '11' THEN 'Noviembre'
-        WHEN '12' THEN 'Diciembre'
-    END AS mes_nombre,
-    COUNT(id) AS total_reservas
-FROM
-    reservations
-WHERE
-    subcourt_id = $1 -- Asegura el filtro por la cancha/sucursal específica
-GROUP BY
-    ano, mes_numero, mes_nombre
-ORDER BY
-    ano DESC, mes_numero DESC;
-    `); // Los parámetros deben ir en la llamada a pool.query, no aquí
+            EXTRACT(YEAR FROM reservation_date) AS anio,
+            TO_CHAR(reservation_date, 'TMMonth') AS mes,
+            COUNT(id) AS total_reservas
+        FROM reservations
+        WHERE subcourt_id = $1
+          AND state = true
+    `;
+
+    const params = [id];
+    let paramIndex = 2;
+
+    if (year) {
+        query += ` AND EXTRACT(YEAR FROM reservation_date) = $${paramIndex} `;
+        params.push(year);
+        paramIndex++;
+    }
+
+    if (month) {
+        query += ` AND EXTRACT(MONTH FROM reservation_date) = $${paramIndex} `;
+        params.push(month);
+        paramIndex++;
+    }
+
+    query += `
+        GROUP BY anio, mes
+        ORDER BY anio ASC,
+                 MIN(reservation_date) ASC
+    `;
 
     try {
-        // Ejecución de la consulta, pasando el parámetro UNA SOLA VEZ
-        // (Aunque la query usa $1 tres veces, el array de valores solo necesita un elemento [id])
-        const result = await pool.query(queryString, [id]); 
+        console.log("QUERY:", query);
+        console.log("PARAMS:", params);
+
+        const result = await pool.query(query, params);
+
+        return res.json(result.rows);
         
-        return res.status(200).json(result.rows);
     } catch (error) {
         console.error("Error al obtener reservas periódicas:", error);
         return res.status(500).json({
-            success: false,
-            message: "Fallo al obtener el histórico de reservas.",
-            error: error.message
+            error: "Fallo al obtener el histórico de reservas."
         });
     }
 };
 
 
-// 4. Clientes Frecuentes (Top 10)
-// Corregido para aceptar (req, res) y manejar la respuesta.
+// 5. Frequent Clients (Top 10)
 const getFrequentClients = async (req, res) => {
-    const { id } = req.params; // Obtenido correctamente de req.params
-    const queryString = (`
+    const { id } = req.params;
+    const { year, month } = req.query;
+
+console.log("data"+ id,year,month);
+    let query = `
         SELECT
             user_id,
             user_name,
             COUNT(id) AS total_reservas
-        FROM
-            reservations
-        WHERE
-            subcourt_id = $1
-        GROUP BY
-            user_id, user_name
-        ORDER BY
-            total_reservas DESC
+        FROM reservations
+        WHERE subcourt_id = $1
+          AND state = true
+    `;
+
+        const params = [id];
+    let paramIndex = 2;
+
+    // Filtro dinámico por año
+    if (year) {
+        query += ` AND EXTRACT(YEAR FROM reservation_date) = $${paramIndex} `;
+        params.push(year);
+        paramIndex++;
+    }
+
+    // Filtro dinámico por mes
+    if (month) {
+        query += ` AND EXTRACT(MONTH FROM reservation_date) = $${paramIndex} `;
+        params.push(month);
+        paramIndex++;
+    }
+
+    query += `
+        GROUP BY user_id, user_name
+        ORDER BY total_reservas DESC
         LIMIT 10;
-    `);
-    
+    `;
+
     try {
-        const result = await pool.query(queryString, [id]); 
-        
-        return res.status(200).json(result.rows);
+        const result = await pool.query(query, params);
+        console.log(result.rows);
+        return res.json(result.rows);
     } catch (error) {
         console.error("Error al obtener clientes frecuentes:", error);
         return res.status(500).json({
-            success: false,
-            message: "Fallo al obtener la lista de clientes frecuentes.",
-            error: error.message
+            error: "Fallo al obtener la lista de clientes frecuentes."
         });
     }
 };
 
-// 5. Recaudo Total por Método de Pago
-// Corregido para aceptar (req, res) y manejar la respuesta.
+
+// 6. Total Revenue by Payment Method
 const getRevenueByPaymentMethod = async (req, res) => {
-    const { id } = req.params; // Obtenido correctamente de req.params
-    const queryString = ( `
-        
-              WITH RecaudoDetalle AS (
-          SELECT
-              payment_method,
-              COUNT(id) AS total_reservas,
-              SUM(price_reservation) AS recaudo_total
-          FROM
-              reservations
-          WHERE
-              subcourt_id = $1
-          GROUP BY
-              payment_method
+    const { id } = req.params;
+    const { year, month } = req.query 
+console.log(year+month)
+        let query = `
+            SELECT
+                payment_method AS medio_pago,
+                COUNT(id) AS total_reservas,
+                SUM(transfer) AS recaudo_total
+            FROM reservations
+            WHERE subcourt_id = $1
+              AND state = true
+        `;
 
-          UNION ALL
+       const params = [id];
+    let paramIndex = 2;
 
-        
-          SELECT
-              'Total General' AS payment_method,
-              COUNT(id) AS total_reservas,
-              SUM(price_reservation) AS recaudo_total
-          FROM
-              reservations
-          WHERE
-              subcourt_id = $1
-      )
-      SELECT 
-          payment_method,
-          total_reservas,
-          recaudo_total
-      FROM
-          RecaudoDetalle
-      ORDER BY
-          CASE WHEN payment_method = 'Total General' THEN 1 ELSE 0 END, 
-          recaudo_total DESC;
-
-    `);
-
-    try {
-        const result = await pool.query(queryString, [id]); // Pasar [id] al query
-        
-        return res.status(200).json(result.rows);
-    } catch (error) {
-        console.error("Error al obtener recaudos por medio de pago:", error);
-        return res.status(500).json({
-            success: false,
-            message: "Fallo al obtener datos de recaudación.",
-            error: error.message
-        });
+    if (year) {
+        query += ` AND EXTRACT(YEAR FROM reservation_date) = $${paramIndex} `;
+        params.push(year);
+        paramIndex++;
     }
-};
 
+    if (month) {
+        query += ` AND EXTRACT(MONTH FROM reservation_date) = $${paramIndex} `;
+        params.push(month);
+        paramIndex++;
+    }
+
+        query += `
+            GROUP BY payment_method
+            ORDER BY recaudo_total DESC
+        `;
+
+        const result = await pool.query(query, params);
+        console.log("Recaudo por Método de Pago:", result.rows);
+        return res.json(result.rows);
+
+};
 
 
 module.exports = {
@@ -2225,5 +2582,11 @@ module.exports = {
   getPeakOffPeakHours,
   getPeriodicReservations,
   getFrequentClients,
-  getRevenueByPaymentMethod
+  getRevenueByPaymentMethod,
+  deleteReservation,
+  getSubcourtPriceByDate,
+  updateReservation,
+  sendReservationReminder,
+  getSubCourtsName
+
 };
