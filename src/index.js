@@ -6,7 +6,7 @@ const app = express();
 const cors = require('cors')
 require('./middlewares/passport-middleware')
 require('./middlewares/config')(passport);
-const PORT = process.env.PORT || 3000;
+const PORT = 3000;
 app.use(cookieParser());
 app.use(passport.initialize())
 app.use(morgan('dev'))
