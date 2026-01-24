@@ -13,8 +13,14 @@ app.use(passport.initialize())
 app.use(morgan('dev'))
 //initialize middlewares
 app.use(express.json());
+
+const allowedOrigins = [
+  "http://localhost:5173",
+  "https://backend-canchas-production.up.railway.app"
+];
+
 app.use(cors({
-    origin: true,
+    origin: allowedOrigins,
     credentials: true
   }));
 const authRoutes=require('./routes/users.routes');
