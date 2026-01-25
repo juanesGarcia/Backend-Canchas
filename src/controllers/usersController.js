@@ -1705,6 +1705,42 @@ Te esperamos 👌`;
   }
 };
 
+const updateTransferWithPrice = async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    // 1️⃣ Obtener price_reservation actual
+    const result = await pool.query(
+      "SELECT price_reservation FROM reservations WHERE id = $1",
+      [id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, message: "Reserva no existe" });
+    }
+
+    const price = result.rows[0].price_reservation;
+
+    // 2️⃣ Hacer UPDATE automático
+    const update = await pool.query(
+      `UPDATE reservations
+       SET transfer = $1, updated_at = NOW()
+       WHERE id = $2
+       RETURNING *`,
+      [price, id]
+    );
+
+    return res.json({
+      success: true,
+      reservation: update.rows[0],
+    });
+
+  } catch (error) {
+    console.error("Pay all error:", error.message);
+    res.status(500).json({ success: false, error: "Error interno" });
+  }
+};
+
 
 const updateReservation = async (req, res) => {
     const { id } = req.params;
@@ -2587,6 +2623,7 @@ module.exports = {
   getSubcourtPriceByDate,
   updateReservation,
   sendReservationReminder,
-  getSubCourtsName
+  getSubCourtsName,
+  updateTransferWithPrice
 
 };
