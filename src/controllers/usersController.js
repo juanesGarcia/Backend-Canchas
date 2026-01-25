@@ -2117,8 +2117,8 @@ const registerProveedor = async (req, res) => {
 
 const getSubcourtPriceByDate = async (req, res) => {
   try {
-    const { id } = req.params; 
-    const { reservationDate } = req.query; 
+    const { id } = req.params;
+    const { reservationDate } = req.query;
 
     if (!id || !reservationDate) {
       return res.status(400).json({
@@ -2127,22 +2127,30 @@ const getSubcourtPriceByDate = async (req, res) => {
       });
     }
 
-    // ✅ Crear la fecha de forma local para evitar desfase
     const [year, month, day] = reservationDate.split('-').map(Number);
-    const localDate = new Date(year, month - 1, day); // crea en hora local
-    const dayOfWeek = localDate
-      .toLocaleString('es-ES', { weekday: 'long', timeZone: 'America/Bogota' })
-      .toLowerCase();
+    const localDate = new Date(year, month - 1, day);
+
+    const days = [
+      'domingo',
+      'lunes',
+      'martes',
+      'miércoles',
+      'jueves',
+      'viernes',
+      'sábado'
+    ];
+
+    const dayOfWeek = days[localDate.getDay()];
 
     console.log("📅 Fecha recibida:", reservationDate);
     console.log("🗓️ Día calculado:", dayOfWeek);
 
-    // 🔍 Consultar el precio
     const result = await pool.query(
       `
       SELECT price, day_of_week
       FROM subcourt_prices
-      WHERE subcourt_id = $1 AND LOWER(day_of_week) = $2
+      WHERE subcourt_id = $1
+        AND LOWER(day_of_week) = $2
       LIMIT 1;
       `,
       [id, dayOfWeek]
@@ -2157,7 +2165,6 @@ const getSubcourtPriceByDate = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: "Precio encontrado exitosamente.",
       price: result.rows[0].price,
       day_of_week: result.rows[0].day_of_week
     });
@@ -2166,11 +2173,11 @@ const getSubcourtPriceByDate = async (req, res) => {
     console.error("Error al obtener el precio:", error.message);
     res.status(500).json({
       success: false,
-      error: "Error interno al obtener el precio.",
-      details: error.message
+      error: "Error interno al obtener el precio."
     });
   }
 };
+
 
 const getReservationActive = async (req, res) => {
     const { Id } = req.params;
