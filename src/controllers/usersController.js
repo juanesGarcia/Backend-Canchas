@@ -2544,7 +2544,8 @@ console.log(year+month)
             SELECT
                 payment_method AS medio_pago,
                 COUNT(id) AS total_reservas,
-                SUM(transfer) AS recaudo_total
+                SUM(transfer) AS recaudo_total,
+                COALESCE(SUM(missing_quantity),0) AS faltante_total
             FROM reservations
             WHERE subcourt_id = $1
               AND state = true
