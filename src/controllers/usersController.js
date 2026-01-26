@@ -1468,7 +1468,6 @@ const createReservation = async (req, res) => {
     try {
         const reservationId = v4();
         const now = new Date();
-
         const result = await pool.query(
             `INSERT INTO reservations (
                 id, user_id, subcourt_id, reservation_date, reservation_time, duration,
@@ -1481,11 +1480,7 @@ const createReservation = async (req, res) => {
                 end_time, 
                 state, price_reservation, transfer, now, now, user_name, phone, payment_method
             ]
-        );
-        
-        const rawPhoneNumber = phone ? phone.replace(/\D/g, '') : '573186699925'; 
-        const phoneNumberForTwilio = `whatsapp:+${rawPhoneNumber}`;
-
+        );  
         const dateForTemplate = new Date(reservation_date + 'T00:00:00').toLocaleDateString('es-CO', { 
             weekday: 'long', day: 'numeric', month: 'long' 
         });
@@ -1501,8 +1496,16 @@ const createReservation = async (req, res) => {
             
         const priceForTemplate = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP' }).format(price_reservation);
 
+    const namecancha = await pool.query(
+      `SELECT courts.name, subcourts.name as subcourtName FROM subcourts inner join courts on courts.id = subcourts.court_id WHERE subcourts.id = $1`,
+      [result.rows[0].subcourt_id]
+    );
+
+    const name = namecancha.rows[0];
+
         const messageBody = `¡Hola ${user_name}! Tu reserva ha sido confirmada.
-Cancha: ${result.rows[0].subcourt_id}
+Cancha: ${name.name}
+Subcancha:${name.subcourtName}
 Fecha: ${dateForTemplate}
 Hora: ${timeForTemplate}
 Duración: ${durationForTemplate}
@@ -1515,7 +1518,7 @@ Precio: ${priceForTemplate}
     .create({
         body: messageBody,
         from: 'whatsapp:+14155238886',
-        to: 'whatsapp:+573186699925'
+        to: `whatsapp:+57${phone}`
     })
     .then(message => console.log(message.sid))
     .done();
@@ -1645,7 +1648,12 @@ const sendReservationReminder = async (req, res) => {
     if (!result.rows.length) {
       return res.status(404).json({ error: "Reserva no encontrada" });
     }
+    const namecancha = await pool.query(
+      `SELECT courts.name, subcourts.name as subcourtName FROM subcourts inner join courts on courts.id = subcourts.court_id WHERE subcourts.id = $1`,
+      [reservation.subcourt_id]
+    );
 
+    const name = namecancha.rows[0];
     const reservation = result.rows[0];
 
     // 2️⃣ Formatear teléfono
@@ -1678,7 +1686,8 @@ const sendReservationReminder = async (req, res) => {
 
 Hola ${reservation.user_name}
 
-Cancha: ${reservation.subcourt_id}
+Cancha: ${name.name}
+Subcancha:${name.subcourtName}
 Fecha: ${dateForTemplate}
 Hora: ${timeForTemplate}
 Duración: ${durationForTemplate}
