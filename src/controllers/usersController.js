@@ -1468,6 +1468,8 @@ const createReservation = async (req, res) => {
     try {
         const reservationId = v4();
         const now = new Date();
+
+        // 1. Insertar la reserva
         const result = await pool.query(
             `INSERT INTO reservations (
                 id, user_id, subcourt_id, reservation_date, reservation_time, duration,
@@ -1477,10 +1479,11 @@ const createReservation = async (req, res) => {
             RETURNING id, subcourt_id, reservation_date, reservation_time`,
             [
                 reservationId, user_id, subcourtId, reservation_date, reservation_time, duration,
-                end_time, 
-                state, price_reservation, transfer, now, now, user_name, phone, payment_method
+                end_time, state, price_reservation, transfer, now, now, user_name, phone, payment_method
             ]
         );  
+
+        // 2. Formatear datos para el mensaje
         const dateForTemplate = new Date(reservation_date + 'T00:00:00').toLocaleDateString('es-CO', { 
             weekday: 'long', day: 'numeric', month: 'long' 
         });
@@ -1496,16 +1499,21 @@ const createReservation = async (req, res) => {
             
         const priceForTemplate = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP' }).format(price_reservation);
 
-    const namecancha = await pool.query(
-      `SELECT courts.name, subcourts.name as subcourtName FROM subcourts inner join courts on courts.id = subcourts.court_id WHERE subcourts.id = $1`,
-      [result.rows[0].subcourt_id]
-    );
+        // 3. Obtener nombres de cancha y subcancha
+        const namecancha = await pool.query(
+            `SELECT courts.name as courtName, subcourts.name as subcourtName 
+             FROM subcourts 
+             INNER JOIN courts ON courts.id = subcourts.court_id 
+             WHERE subcourts.id = $1`,
+            [subcourtId]
+        );
 
-    const name = namecancha.rows[0];
+        // Validar que existan los nombres para evitar que el servidor explote
+        const names = namecancha.rows.length > 0 ? namecancha.rows[0] : { courtname: 'N/A', subcourtname: 'N/A' };
 
         const messageBody = `¡Hola ${user_name}! Tu reserva ha sido confirmada.
-Cancha: ${name.name}
-Subcancha:${name.subcourtName}
+Cancha: ${names.courtname}
+Subcancha: ${names.subcourtname}
 Fecha: ${dateForTemplate}
 Hora: ${timeForTemplate}
 Duración: ${durationForTemplate}
@@ -1513,35 +1521,35 @@ Precio: ${priceForTemplate}
 
 ¡Gracias por tu reserva!`;
         
-           try {
-          client.messages
-    .create({
-        body: messageBody,
-        from: 'whatsapp:+14155238886',
-        to: `whatsapp:+57${phone}`
-    })
-    .then(message => console.log(message.sid))
-    .done();
+        // 4. Enviar WhatsApp (usando await para mejor manejo de errores)
+        try {
+            const message = await client.messages.create({
+                body: messageBody,
+                from: 'whatsapp:+14155238886',
+                to: `whatsapp:+57${phone}`
+            });
+            console.log('WhatsApp enviado con éxito, SID:', message.sid);
         } catch (whatsappError) {
-            // Loguear el error de Twilio para depuración, pero no fallar el HTTP 500
             console.error('Error al enviar WhatsApp (Twilio):', whatsappError.message);
-            // Puedes añadir aquí lógica para reintentar o registrar el fallo del envío.
+            // No bloqueamos la respuesta al cliente si falla el mensaje
         }
 
-
-        res.status(201).json({
+        // 5. Responder al cliente
+        return res.status(201).json({
             success: true,
             reservation: result.rows[0]
         });
 
     } catch (error) {
-        console.error(error.message);
+        console.error('Error en createReservation:', error.message);
+        
         if (error.code === '23503') {
             return res.status(400).json({
-                error: "El subcourt_id o client_id proporcionado no existe."
+                error: "El subcourt_id o user_id proporcionado no existe."
             });
         }
-        res.status(500).json({
+        
+        return res.status(500).json({
             error: "Error interno del servidor al crear la reserva.",
             details: error.message
         });
