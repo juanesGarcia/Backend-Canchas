@@ -10,6 +10,7 @@ const {
 } = require("../firebase");
 const fs = require("fs").promises;
 const path = require("path");
+const { Console } = require("console");
 const accountSid = process.env.TWILIO_ACCOUNT_SID;
 const authToken = process.env.TWILIO_AUTH_TOKEN;
 
@@ -1510,7 +1511,7 @@ const createReservation = async (req, res) => {
 
         // Validar que existan los nombres para evitar que el servidor explote
         const names = namecancha.rows.length > 0 ? namecancha.rows[0] : { courtname: 'N/A', subcourtname: 'N/A' };
-
+console.log(names,phone);
         const messageBody = `¡Hola ${user_name}! Tu reserva ha sido confirmada.
 Cancha: ${names.courtname}
 Subcancha: ${names.subcourtname}
@@ -2151,7 +2152,7 @@ const getSubcourtPriceByDate = async (req, res) => {
       'domingo',
       'lunes',
       'martes',
-      'miércoles',
+      'miercoles',
       'jueves',
       'viernes',
       'sábado'
