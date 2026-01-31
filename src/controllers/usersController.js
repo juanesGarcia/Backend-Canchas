@@ -128,7 +128,8 @@ const registerServices = async (req,res) => {
     state,
     court_type,
     is_public,
-    is_court
+    is_court,
+    type
   } = req.body;
 
  const { userId } = req.params;
@@ -141,11 +142,10 @@ const registerServices = async (req,res) => {
 
     const serviceId = v4();
     const now = new Date();
-    const types = 'services';
     // Insertar solo en la tabla 'courts'
     await client.query(
-      "insert into courts(id, name, address, city, phone, price, description, created_at, updated_at, state, user_id,is_court,type) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,$13)",
-      [serviceId, courtName, courtAddress, courtCity, courtPhone, price, description, now, now, state, userId, is_court,court_type]
+      "insert into courts(id, name, address, city, phone, price, description, created_at, updated_at, state, user_id,is_court,type,court_type) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,$13,$14)",
+      [serviceId, courtName, courtAddress, courtCity, courtPhone, price, description, now, now, state, userId, is_court,court_type,type]
     );
 console.log('user'+userId)
 
@@ -1286,38 +1286,33 @@ const createSubcourt = async (req, res) => {
 
 
 const updateCourt = async (req, res) => {
-  const { id } = req.params;
-  const {
-    name,
-    description,
-    phone,
-    court_type,
-  } = req.body;
-  const userId = req.user.id;
+  const id = req.params.id.trim();
+  const { name, description, phone, court_type } = req.body;
 
-  console.log(userId)
-
-  console.log(id + 'este es el id')
-
-  console.log(req.body)
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    await client.query(`SET app.current_user_id = '${userId}';`);
 
     const now = new Date();
 
-    await client.query(
-      `UPDATE courts SET name = $1 , description = $2 , court_type= $3 , phone = $4 , updated_at = $5 where user_id = $6`,
-      [name, description, court_type, phone,now,id]
+    const result = await client.query(
+      `UPDATE courts 
+       SET name = $1, description = $2, court_type = $3, phone = $4, updated_at = $5 
+       WHERE user_id = $6
+       RETURNING *`,
+      [name, description, court_type, phone, now, id]
     );
 
     await client.query('COMMIT');
-    res.status(200).json({ success: true, message: "Cancha y sus datos asociados actualizados exitosamente (solo registros existentes con ID)." });
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ message: "No existe una cancha con ese ID" });
+    }
+
+    res.status(200).json({ success: true, data: result.rows[0] });
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error("Error al actualizar la cancha:", error.message);
-    res.status(500).json({ error: "Error al actualizar la cancha: " + error.message });
+    res.status(500).json({ error: error.message });
   } finally {
     client.release();
   }
@@ -1325,12 +1320,11 @@ const updateCourt = async (req, res) => {
 
 const deleteCourt = async (req, res) => {
     const { id } = req.params; 
-    const userId = req.user.id; 
+
 
     const client = await pool.connect();
     try {
         await client.query('BEGIN'); 
-        await client.query(`SET app.current_user_id = '${userId}';`);
 
         const courtResult = await client.query(
             "SELECT user_id FROM courts WHERE id = $1",
@@ -1340,12 +1334,6 @@ const deleteCourt = async (req, res) => {
         if (courtResult.rows.length === 0) {
             await client.query('ROLLBACK');
             return res.status(404).json({ error: "Cancha no encontrada." });
-        }
-
-        const courtOwnerId = courtResult.rows[0].user_id;
-        if (userId !== courtOwnerId && req.user.role !== 'admin') {
-            await client.query('ROLLBACK');
-            return res.status(403).json({ error: "No tienes permiso para eliminar esta cancha." });
         }
 
         const photosResult = await client.query(
@@ -1880,7 +1868,7 @@ FROM
 LEFT JOIN
     subcourt_prices sp ON sc.id = sp.subcourt_id
 WHERE
-    sc.id = $1 AND sc.state = true
+    sc.id = $1 
 GROUP BY
     sc.id, sc.name, sc.state;`,
             [subcourtId]

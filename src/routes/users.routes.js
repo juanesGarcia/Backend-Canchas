@@ -94,7 +94,7 @@ router.get('/subCourtName/:id', getSubCourtsName);
 router.get('/getReservations/:subcourtId', getReservationsBySubcourt);
 router.put("/reservations/:id/pay-all", updateTransferWithPrice);
 router.put('/courts/:id', userAuth, updateCourt);
-router.delete('/courts/:id', userAuth, deleteCourt);
+router.delete('/courts/:id', deleteCourt);
 router.post('/deleteReservations/:id', deleteReservation);
 router.delete('/subcourts/:subcourtId', deleteSubcourt);
 router.post('/reservations/:subcourtId', createReservation);
