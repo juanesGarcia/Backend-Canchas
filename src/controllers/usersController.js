@@ -1460,12 +1460,37 @@ const createReservation = async (req, res) => {
         payment_method
     } = req.body;
 
+    const dbClient = await pool.connect();
+
     try {
+        await dbClient.query('BEGIN');
+
+        const existingReservations = await dbClient.query(
+            `SELECT id FROM reservations 
+             WHERE subcourt_id = $1 
+             AND reservation_date = $2 
+             AND (
+                (reservation_time <= $3 AND end_time > $3) OR
+                (reservation_time < $4 AND end_time >= $4) OR
+                ($3 <= reservation_time AND $4 > reservation_time)
+             )
+             LIMIT 1 FOR UPDATE`,
+            [subcourtId, reservation_date, reservation_time, end_time]
+        );
+
+        if (existingReservations.rows.length > 0) {
+            await dbClient.query('ROLLBACK');
+            return res.status(409).json({ 
+                success: false, 
+                error: "Este horario ya ha sido reservado por otra persona." 
+            });
+        }
+
         const reservationId = v4();
         const now = new Date();
 
-        // 1. Insertar la reserva
-        const result = await pool.query(
+        // 3. Insertar la reserva
+        const result = await dbClient.query(
             `INSERT INTO reservations (
                 id, user_id, subcourt_id, reservation_date, reservation_time, duration,
                 end_time, state, price_reservation, transfer, created_at, updated_at,
@@ -1476,78 +1501,60 @@ const createReservation = async (req, res) => {
                 reservationId, user_id, subcourtId, reservation_date, reservation_time, duration,
                 end_time, state, price_reservation, transfer, now, now, user_name, phone, payment_method
             ]
-        );  
+        );
 
-        // 2. Formatear datos para el mensaje
+        await dbClient.query('COMMIT');
+
         const dateForTemplate = new Date(reservation_date + 'T00:00:00').toLocaleDateString('es-CO', { 
             weekday: 'long', day: 'numeric', month: 'long' 
         });
-
         const timeForTemplate = new Date(`${reservation_date}T${reservation_time}:00`).toLocaleTimeString('es-CO', { 
             hour: 'numeric', minute: '2-digit', hour12: true 
         });
-        
         const durationInHours = duration / 60;
         const durationForTemplate = duration % 60 === 0 
             ? `${durationInHours} hora${durationInHours > 1 ? 's' : ''}` 
             : `${duration} minutos`;
-            
         const priceForTemplate = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP' }).format(price_reservation);
 
-        // 3. Obtener nombres de cancha y subcancha
         const namecancha = await pool.query(
-            `SELECT courts.name as courtName, subcourts.name as subcourtName 
-             FROM subcourts 
-             INNER JOIN courts ON courts.id = subcourts.court_id 
-             WHERE subcourts.id = $1`,
+            `SELECT c.name as courtname, s.name as subcourtname 
+             FROM subcourts s
+             INNER JOIN courts c ON c.id = s.court_id 
+             WHERE s.id = $1`,
             [subcourtId]
         );
 
-        // Validar que existan los nombres para evitar que el servidor explote
-        const names = namecancha.rows.length > 0 ? namecancha.rows[0] : { courtname: 'N/A', subcourtname: 'N/A' };
-console.log(names,phone);
-        const messageBody = `¡Hola ${user_name}! Tu reserva ha sido confirmada.
-Cancha: ${names.courtname}
-Subcancha: ${names.subcourtname}
-Fecha: ${dateForTemplate}
-Hora: ${timeForTemplate}
-Duración: ${durationForTemplate}
-Precio: ${priceForTemplate}
-
-¡Gracias por tu reserva!`;
+        const names = namecancha.rows[0] || { courtname: 'N/A', subcourtname: 'N/A' };
         
-        // 4. Enviar WhatsApp (usando await para mejor manejo de errores)
+        const messageBody = `¡Hola ${user_name}! Tu reserva ha sido confirmada.\nCancha: ${names.courtname}\nSubcancha: ${names.subcourtname}\nFecha: ${dateForTemplate}\nHora: ${timeForTemplate}\nDuración: ${durationForTemplate}\nPrecio: ${priceForTemplate}\n\n¡Gracias por tu reserva!`;
+
         try {
-            const message = await client.messages.create({
+            await twilioClient.messages.create({
                 body: messageBody,
                 from: 'whatsapp:+14155238886',
                 to: `whatsapp:+57${phone}`
             });
-            console.log('WhatsApp enviado con éxito, SID:', message.sid);
-        } catch (whatsappError) {
-            console.error('Error al enviar WhatsApp (Twilio):', whatsappError.message);
-            // No bloqueamos la respuesta al cliente si falla el mensaje
+        } catch (wsErr) {
+            console.error('Error Twilio:', wsErr.message);
         }
 
-        // 5. Responder al cliente
         return res.status(201).json({
             success: true,
             reservation: result.rows[0]
         });
 
     } catch (error) {
+        await dbClient.query('ROLLBACK');
         console.error('Error en createReservation:', error.message);
         
         if (error.code === '23503') {
-            return res.status(400).json({
-                error: "El subcourt_id o user_id proporcionado no existe."
-            });
+            return res.status(400).json({ error: "El subcourt_id o user_id no existe." });
         }
         
-        return res.status(500).json({
-            error: "Error interno del servidor al crear la reserva.",
-            details: error.message
-        });
+        return res.status(500).json({ error: "Error al crear la reserva." });
+    } finally {
+        dbClient.release();
     }
 };
 
