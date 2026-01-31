@@ -1362,16 +1362,22 @@ const deleteCourt = async (req, res) => {
             console.warn("Algunas imágenes no se pudieron eliminar de Firebase Storage:", failedFirebaseDeletions);
         }
         
+        
         // --- ¡NUEVO: ELIMINAR SUBCANCHAS ASOCIADAS PRIMERO! ---
-        await client.query("DELETE FROM subcourts WHERE court_id = $1", [id]);
+        await client.query(
+            "UPDATE subcourts SET state = false WHERE court_id = $1",
+            [id]
+        );
 
         // Eliminar las fotos de la tabla 'photos' en la base de datos
         await client.query("DELETE FROM photos WHERE court_id = $1", [id]);
 
 
         // Eliminar la cancha principal de la tabla 'courts'
-        const deleteCourtResult = await client.query("DELETE FROM courts WHERE id = $1", [id]);
-
+   const deleteCourtResult = await client.query(
+            "UPDATE courts SET state = false WHERE id = $1",
+            [id]
+        );
         if (deleteCourtResult.rowCount === 0) {
             await client.query('ROLLBACK');
             return res.status(404).json({ error: "Cancha no encontrada después de verificar." });
