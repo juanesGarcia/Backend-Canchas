@@ -46,7 +46,8 @@ getSubcourtPriceByDate,
 updateReservation,
 sendReservationReminder,
 getSubCourtsName,
-updateTransferWithPrice
+updateTransferWithPrice,
+getCourtPhone
 }=require("../controllers/usersController")
 const {
     registerValidator, 
@@ -89,6 +90,7 @@ router.delete('/posts/:id', verifyToken, deletePost);
 router.get('/courts', getCourts);
 router.get('/services', getServices);
 router.get('/courts/:id',getCourtById);
+router.get('/courtsPhone/:id',getCourtPhone);
 router.get('/subCourts/:id', getSubCourts);
 router.get('/subCourtName/:id', getSubCourtsName);
 router.get('/getReservations/:subcourtId', getReservationsBySubcourt);

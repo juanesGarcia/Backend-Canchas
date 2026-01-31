@@ -2034,7 +2034,7 @@ const getUserReservationsByDate = async (req, res) => {
                 c.id AS court_id,
                 c.name AS court_name,
                 r.user_id,
-                r.missing_quantity 
+                r.missing_quantity
             FROM
                 reservations r
             JOIN
@@ -2591,6 +2591,24 @@ console.log(year+month)
 };
 
 
+const getCourtPhone = async (req, res) => {
+   const { id } = req.params;
+    console.log(id)
+  try {
+        const result = await pool.query(
+          "SELECT c.phone from subcourts s inner join courts c on s.court_id = c.id where s.id=$1",
+      [id]
+    );
+    console.log(result)
+    res.status(200).json({ success: true, courts: result.rows[0] });
+  } catch (error) {
+    console.error("Error al obtener canchas:", error.message);
+    res.status(500).json({ error: "Error al obtener canchas: " + error.message });
+  }
+};
+
+
+
 module.exports = {
   getUsers,
   register,
@@ -2638,6 +2656,7 @@ module.exports = {
   updateReservation,
   sendReservationReminder,
   getSubCourtsName,
-  updateTransferWithPrice
+  updateTransferWithPrice,
+  getCourtPhone
 
 };
