@@ -1193,11 +1193,10 @@ const deletePost = async (req, res) => {
 const getCourts = async (req, res) => {
   try {
     const result = await pool.query(`
-      SELECT
+SELECT
           c.id AS court_id,
           c.name AS court_name,
           c.user_id,
-          u.name AS owner_name,
           c.address,
           c.city,
           c.phone,
@@ -1210,6 +1209,7 @@ const getCourts = async (req, res) => {
           c.updated_at,
           c.is_court,
           c.type,
+          owner_court.name owner_name,
           COALESCE(json_agg(DISTINCT jsonb_build_object('id', sc.id, 'name', sc.name, 'state', sc.state)) FILTER (WHERE sc.id IS NOT NULL), '[]') AS subcourts,
           COALESCE(json_agg(DISTINCT jsonb_build_object('id', cs.id, 'platform', cs.platform, 'url', cs.url)) FILTER (WHERE cs.id IS NOT NULL), '[]') AS court_socials,
           COALESCE(json_agg(DISTINCT jsonb_build_object('id', p.id, 'url', p.url)) FILTER (WHERE p.id IS NOT NULL), '[]') AS photos
@@ -1223,8 +1223,11 @@ const getCourts = async (req, res) => {
           court_socials cs ON c.id = sc.court_id
       LEFT JOIN
           photos p ON c.id = p.court_id
+      LEFT JOIN courts owner_court 
+  ON owner_court.user_id = c.user_id 
+ AND owner_court.type = 'court'
       GROUP BY
-          c.id, u.name
+          c.id, u.name,owner_court.name
       ORDER BY
           c.created_at DESC;
     `);
