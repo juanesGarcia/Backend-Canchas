@@ -1464,11 +1464,16 @@ const createReservation = async (req, res) => {
 
     try {
         await dbClient.query('BEGIN');
-
+        // 1. Lock
+      await dbClient.query(
+        `SELECT id FROM subcourts WHERE id = $1 FOR UPDATE`,
+        [subcourtId]
+      );
         const existingReservations = await dbClient.query(
             `SELECT id FROM reservations 
              WHERE subcourt_id = $1 
              AND reservation_date = $2 
+             AND state = true
              AND (
                 (reservation_time <= $3 AND end_time > $3) OR
                 (reservation_time < $4 AND end_time >= $4) OR
@@ -1577,7 +1582,6 @@ console.log(id);
 
         // Eliminar la reserva
         await pool.query(`UPDATE reservations SET state = false, updated_at = NOW() WHERE id = $1`, [id]);
-
 
         // (Opcional) Enviar notificación por WhatsApp
         const { user_name, phone, reservation_date, reservation_time } = existingReservation.rows[0];
@@ -2271,7 +2275,7 @@ const getPromotionsByUser = async (req, res) => {
           FILTER (WHERE p.id IS NOT NULL), '[]') AS photos
       FROM courts c
       LEFT JOIN photos p ON c.id = p.court_id
-      WHERE c.type in ('promotion','services') AND c.user_id = $1
+      WHERE c.type in ('promotion','services') AND c.user_id = $1 and state=true
       GROUP BY c.id
       ORDER BY c.created_at DESC
       `,
