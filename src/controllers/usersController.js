@@ -278,7 +278,14 @@ const registerPromotions = async (req, res) => {
 
 const login = async (req, res) => {
   let user = req.user;
-  console.log(user);
+
+  if (!user.state) {
+    return res.status(403).json({
+      success: false,
+      message: "Usuario inactivo. Contacta al administrador.",
+    });
+  }
+
   let payload = {
     id: user.id,
     email: user.email,
@@ -296,10 +303,7 @@ const login = async (req, res) => {
       token: token,
     });
   } catch (error) {
-    console.log(error.message);
-    return res.status(500).json({
-      error: error.message,
-    });
+    return res.status(500).json({ error: error.message });
   }
 };
 
@@ -1175,12 +1179,10 @@ const deletePost = async (req, res) => {
 
     await pool.query("COMMIT");
 
-    return res
-      .status(200)
-      .json({
-        success: true,
-        message: "Post eliminado exitosamente y sus imágenes asociadas.",
-      });
+    return res.status(200).json({
+      success: true,
+      message: "Post eliminado exitosamente y sus imágenes asociadas.",
+    });
   } catch (error) {
     await pool.query("ROLLBACK");
     console.error("Error al eliminar post:", error.message);
@@ -1503,17 +1505,15 @@ const deleteCourt = async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-
     const courtResult = await client.query(
-      "SELECT user_id FROM courts WHERE id = $1",
+      "SELECT user_id, type FROM courts WHERE id = $1",
       [id],
     );
-
+    const { user_id: userId, type } = courtResult.rows[0];
     if (courtResult.rows.length === 0) {
       await client.query("ROLLBACK");
       return res.status(404).json({ error: "Cancha no encontrada." });
     }
-
     const photosResult = await client.query(
       "SELECT url FROM photos WHERE id = $1",
       [id],
@@ -1554,9 +1554,15 @@ const deleteCourt = async (req, res) => {
       "UPDATE subcourts SET state = false WHERE court_id = $1",
       [id],
     );
-
+    if (type === "court") {
+      await client.query("UPDATE users SET state = false WHERE id = $1", [
+        userId,
+      ]);
+    }
     // Eliminar las fotos de la tabla 'photos' en la base de datos
-    await client.query("DELETE FROM photos WHERE court_id = $1", [id]);
+    await client.query("UPDATE photos SET state=false WHERE court_id = $1", [
+      id,
+    ]);
 
     // Eliminar la cancha principal de la tabla 'courts'
     const deleteCourtResult = await client.query(
@@ -1666,7 +1672,7 @@ const createReservation = async (req, res) => {
       subcourtId,
     ]);
     const existingReservations = await dbClient.query(
-     `SELECT id FROM reservations
+      `SELECT id FROM reservations
       WHERE subcourt_id = $1
       AND reservation_date = $2
       AND state = true
@@ -2519,7 +2525,7 @@ const getPromotionsByUser = async (req, res) => {
           FILTER (WHERE p.id IS NOT NULL), '[]') AS photos
       FROM courts c
       LEFT JOIN photos p ON c.id = p.court_id
-      WHERE c.type in ('promotion','services') AND c.user_id = $1 and state=true
+      WHERE c.type in ('promotion','services') AND c.user_id = $1 and c.state=true
       GROUP BY c.id
       ORDER BY c.created_at DESC
       `,
