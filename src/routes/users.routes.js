@@ -10,11 +10,6 @@ deleteUser,
 uploadImages,
 getImages,
 deleteImages,
-getPosts,          
-getPostById,    
-updatePost,
-deletePost,
-createPost,
 getCourts,
 getCourtById,
 updateCourt,
@@ -82,11 +77,6 @@ router.post('/upload/:id',upload.array('photo', 5),uploadImages);
 router.post('/uploadServices/:id',upload.array('photo', 5),uploadImagesServices);
 router.get('/getimages/:id',getImages)
 router.delete('/deleteimages/:id/:courtId', deleteImages);
-router.post('/posts', verifyToken, upload.array('images', 5), createPost); 
-router.get('/posts', getPosts); 
-router.get('/posts/:id', getPostById); 
-router.put('/posts/:id', verifyToken, upload.array('images', 5), updatePost); 
-router.delete('/posts/:id', verifyToken, deletePost); 
 router.get('/courts', getCourts);
 router.get('/services', getServices);
 router.get('/courts/:id',getCourtById);
