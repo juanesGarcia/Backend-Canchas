@@ -1207,23 +1207,26 @@ const deleteCourt = async (req, res) => {
       await client.query("UPDATE users SET state = false WHERE id = $1", [
         userId,
       ]);
-    }
-    // Eliminar las fotos de la tabla 'photos' en la base de datos
-    await client.query("UPDATE photos SET state=false WHERE court_id = $1", [
-      id,
-    ]);
-
-    // Eliminar la cancha principal de la tabla 'courts'
-    const deleteCourtResult = await client.query(
+       const deleteCourtResult = await client.query("UPDATE courts SET state = false WHERE user_id = $1", [
+        userId,
+      ]);
+    }else{
+     const deleteCourtResult = await client.query(
       "UPDATE courts SET state = false WHERE id = $1",
       [id],
     );
+
+
     if (deleteCourtResult.rowCount === 0) {
       await client.query("ROLLBACK");
       return res
         .status(404)
         .json({ error: "Cancha no encontrada después de verificar." });
     }
+
+     await client.query("UPDATE photos SET state=false WHERE court_id = $1", [
+      id,
+    ]);
 
     await client.query("COMMIT");
     res.status(200).json({
