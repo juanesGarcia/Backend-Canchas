@@ -1215,7 +1215,7 @@ const deleteCourt = async (req, res) => {
       "UPDATE courts SET state = false WHERE id = $1",
       [id],
     );
-
+  }
 
     if (deleteCourtResult.rowCount === 0) {
       await client.query("ROLLBACK");
