@@ -1215,6 +1215,7 @@ const deleteCourt = async (req, res) => {
         failedFirebaseDeletions,
       );
     }
+let deleteCourtResult;
 
     // --- ¡NUEVO: ELIMINAR SUBCANCHAS ASOCIADAS PRIMERO! ---
     await client.query(
@@ -1225,11 +1226,11 @@ const deleteCourt = async (req, res) => {
       await client.query("UPDATE users SET state = false WHERE id = $1", [
         userId,
       ]);
-       const deleteCourtResult = await client.query("UPDATE courts SET state = false WHERE user_id = $1", [
+       deleteCourtResult = await client.query("UPDATE courts SET state = false WHERE user_id = $1", [
         userId,
       ]);
     }else{
-     const deleteCourtResult = await client.query(
+     deleteCourtResult = await client.query(
       "UPDATE courts SET state = false WHERE id = $1",
       [id],
     );
