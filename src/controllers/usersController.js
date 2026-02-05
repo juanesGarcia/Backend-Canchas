@@ -1061,7 +1061,6 @@ WHERE
 };
 
 const createSubcourt = async (req, res) => {
-  console.log(req.body);
 
   // Se obtiene el court_id de los parámetros de la URL (req.params)
   const { id } = req.params;
@@ -1079,16 +1078,15 @@ const createSubcourt = async (req, res) => {
     await client.query("BEGIN");
 
     // 1. Verificar si la cancha existe y pertenece al usuario autenticado
-    const courtResult = await client.query(
-      "SELECT id FROM courts WHERE user_id = $1",
-      [id],
-    );
+const courtResult = await client.query(
+  "SELECT id, price FROM courts WHERE user_id = $1",
+  [id],
+);
 
     if (courtResult.rows.length === 0) {
       await client.query("ROLLBACK");
       return res.status(404).json({ error: "Cancha no encontrada." });
     }
-
     // 2. Insertar la nueva subcancha
     const subcourtId = v4();
     const now = new Date();
@@ -1096,12 +1094,26 @@ const createSubcourt = async (req, res) => {
       "INSERT INTO subcourts (id,court_id, name, created_at, updated_at, state) VALUES ($1, $2, $3, $4, $5,$6) RETURNING *",
       [subcourtId, courtResult.rows[0].id, name, now, now, state],
     );
+        const daysOfWeek = [
+          "lunes",
+          "martes",
+          "miercoles",
+          "jueves",
+          "viernes",
+          "sábado",
+          "domingo",
+        ];
 
+        for (const day of daysOfWeek) {
+          const IdCourtPrice = v4();
+          await client.query(
+            "INSERT INTO subcourt_prices (subcourt_price_id, subcourt_id,day_of_week,price,updated_at ) VALUES ($1, $2, $3, $4, $5)",
+            [IdCourtPrice, subcourtId, day, courtResult.rows[0].price, now],
+          );
+        }
     await client.query("COMMIT");
 
     const newSubcourt = result.rows[0];
-
-    await client.query("COMMIT");
     return res.status(201).json({
       success: true,
       message: "Subcancha creada exitosamente.",
@@ -1793,6 +1805,7 @@ Si tienes dudas escríbenos.`;
 const getSubCourtPrice = async (req, res) => {
   const { subcourtId } = req.params;
 
+  console.log(subcourtId)
   try {
     const result = await pool.query(
       ` SELECT
