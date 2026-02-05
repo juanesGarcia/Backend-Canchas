@@ -845,41 +845,47 @@ const getCourts = async (req, res) => {
   try {
     const result = await pool.query(`
 SELECT
-          c.id AS court_id,
-          c.name AS court_name,
-          c.user_id,
-          c.address,
-          c.city,
-          c.phone,
-          c.court_type,
-          c.is_public,
-          c.price,
-          c.description,
-          c.state,
-          c.created_at,
-          c.updated_at,
-          c.is_court,
-          c.type,
-          owner_court.name owner_name,
-          COALESCE(json_agg(DISTINCT jsonb_build_object('id', sc.id, 'name', sc.name, 'state', sc.state)) FILTER (WHERE sc.id IS NOT NULL), '[]') AS subcourts,
-          COALESCE(json_agg(DISTINCT jsonb_build_object('id', cs.id, 'platform', cs.platform, 'url', cs.url)) FILTER (WHERE cs.id IS NOT NULL), '[]') AS court_socials,
-          COALESCE(json_agg(DISTINCT jsonb_build_object('id', p.id, 'url', p.url)) FILTER (WHERE p.id IS NOT NULL), '[]') AS photos
-      FROM
-          courts c
-      LEFT JOIN
-          users u ON c.user_id = u.id
-      LEFT JOIN
-          subcourts sc ON c.id = sc.court_id
-      LEFT JOIN
-          court_socials cs ON c.id = sc.court_id
-      LEFT JOIN
-          photos p ON c.id = p.court_id
-      LEFT JOIN courts owner_court 
-  ON owner_court.user_id = c.user_id 
-      GROUP BY
-          c.id, u.name,owner_court.name
-      ORDER BY
-          c.created_at DESC;
+    c.id AS court_id,
+    c.name AS court_name,
+    c.user_id,
+    c.address,
+    c.city,
+    c.phone,
+    c.court_type,
+    c.is_public,
+    c.price,
+    c.description,
+    c.state,
+    c.created_at,
+    c.updated_at,
+    c.is_court,
+    c.type,
+    -- Solo muestra owner_name cuando es 'court', sino NULL
+    CASE 
+        WHEN c.type = 'court' THEN owner_court.name 
+        ELSE NULL 
+    END AS owner_name,
+    COALESCE(json_agg(DISTINCT jsonb_build_object('id', sc.id, 'name', sc.name, 'state', sc.state)) FILTER (WHERE sc.id IS NOT NULL), '[]') AS subcourts,
+    COALESCE(json_agg(DISTINCT jsonb_build_object('id', cs.id, 'platform', cs.platform, 'url', cs.url)) FILTER (WHERE cs.id IS NOT NULL), '[]') AS court_socials,
+    COALESCE(json_agg(DISTINCT jsonb_build_object('id', p.id, 'url', p.url)) FILTER (WHERE p.id IS NOT NULL), '[]') AS photos
+FROM
+    courts c
+LEFT JOIN
+    users u ON c.user_id = u.id
+LEFT JOIN
+    subcourts sc ON c.id = sc.court_id
+LEFT JOIN
+    court_socials cs ON c.id = sc.court_id
+LEFT JOIN
+    photos p ON c.id = p.court_id
+-- Solo hace el join cuando type = 'court'
+LEFT JOIN courts owner_court 
+    ON c.type = 'court'  -- Condición aquí
+    AND owner_court.user_id = c.user_id
+GROUP BY
+    c.id, u.name, owner_court.name
+ORDER BY
+    c.created_at DESC;
     `);
     res.status(200).json({ success: true, courts: result.rows });
   } catch (error) {
