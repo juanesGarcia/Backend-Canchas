@@ -1231,8 +1231,8 @@ let deleteCourtResult;
       ]);
     }else{
      deleteCourtResult = await client.query(
-      "UPDATE courts SET state = false WHERE id = $1",
-      [id],
+      "UPDATE courts SET state = false WHERE user_id = $1",
+      [userId],
     );
   }
 
