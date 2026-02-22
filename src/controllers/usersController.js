@@ -1230,10 +1230,18 @@ let deleteCourtResult;
         userId,
       ]);
     }else{
+
+      if(type === "services"){
      deleteCourtResult = await client.query(
       "UPDATE courts SET state = false WHERE user_id = $1",
       [userId],
-    );
+      );
+      }else{
+           deleteCourtResult = await client.query(
+      "UPDATE courts SET state = false WHERE id = $1",
+      [id],
+      );
+      }
   }
 
     if (deleteCourtResult.rowCount === 0) {
