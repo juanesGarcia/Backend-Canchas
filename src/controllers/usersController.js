@@ -844,48 +844,62 @@ const deleteImages = async (req, res) => {
 const getCourts = async (req, res) => {
   try {
     const result = await pool.query(`
-SELECT
-    c.id AS court_id,
-    c.name AS court_name,
-    c.user_id,
-    c.address,
-    c.city,
-    c.phone,
-    c.court_type,
-    c.is_public,
-    c.price,
-    c.description,
-    c.state,
-    c.created_at,
-    c.updated_at,
-    c.is_court,
-    c.type,
-    -- Solo muestra owner_name cuando es 'court', sino NULL
-    CASE 
-        WHEN c.type = 'court' THEN owner_court.name 
-        ELSE NULL 
-    END AS owner_name,
-    COALESCE(json_agg(DISTINCT jsonb_build_object('id', sc.id, 'name', sc.name, 'state', sc.state)) FILTER (WHERE sc.id IS NOT NULL), '[]') AS subcourts,
-    COALESCE(json_agg(DISTINCT jsonb_build_object('id', cs.id, 'platform', cs.platform, 'url', cs.url)) FILTER (WHERE cs.id IS NOT NULL), '[]') AS court_socials,
-    COALESCE(json_agg(DISTINCT jsonb_build_object('id', p.id, 'url', p.url)) FILTER (WHERE p.id IS NOT NULL), '[]') AS photos
-FROM
-    courts c
-LEFT JOIN
-    users u ON c.user_id = u.id
-LEFT JOIN
-    subcourts sc ON c.id = sc.court_id
-LEFT JOIN
-    court_socials cs ON c.id = sc.court_id
-LEFT JOIN
-    photos p ON c.id = p.court_id
--- Solo hace el join cuando type = 'court'
-LEFT JOIN courts owner_court 
-    ON c.type = 'court'  -- Condición aquí
-    AND owner_court.user_id = c.user_id
-GROUP BY
-    c.id, u.name, owner_court.name
-ORDER BY
-    c.created_at DESC;
+      SELECT
+          c.id AS court_id,
+          c.name AS court_name,
+          c.user_id,
+          c.address,
+          c.city,
+          c.phone,
+          c.court_type,
+          c.is_public,
+          c.price,
+          c.description,
+          c.state,
+          c.created_at,
+          c.updated_at,
+          c.is_court,
+          c.type,
+          -- Solo muestra owner_name cuando NO es 'court' (es decir, es promotion o service)
+          -- y busca el owner en el registro court correspondiente
+          CASE 
+              WHEN c.type != 'court' THEN (
+                  SELECT name 
+                  FROM courts 
+                  WHERE user_id = c.user_id 
+                  AND type = 'court' 
+                  LIMIT 1
+              )
+              ELSE NULL 
+          END AS owner_name,
+          -- Subconsultas para evitar producto cartesiano
+          COALESCE(
+              (SELECT json_agg(jsonb_build_object('id', sc.id, 'name', sc.name, 'state', sc.state))
+              FROM subcourts sc 
+              WHERE sc.court_id = c.id),
+              '[]'
+          ) AS subcourts,
+          COALESCE(
+              (SELECT json_agg(jsonb_build_object('id', cs.id, 'platform', cs.platform, 'url', cs.url))
+              FROM court_socials cs 
+              WHERE cs.court_id = c.id),
+              '[]'
+          ) AS court_socials,
+          COALESCE(
+              (SELECT json_agg(jsonb_build_object('id', p.id, 'url', p.url))
+              FROM photos p 
+              WHERE p.court_id = c.id),
+              '[]'
+          ) AS photos
+      FROM
+          courts c
+      LEFT JOIN
+          users u ON c.user_id = u.id
+      WHERE  c.state = true 
+      GROUP BY
+          c.id, u.name
+      ORDER BY
+          c.created_at DESC;
     `);
     res.status(200).json({ success: true, courts: result.rows });
   } catch (error) {
