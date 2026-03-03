@@ -1075,7 +1075,6 @@ WHERE
 };
 
 const createSubcourt = async (req, res) => {
-
   // Se obtiene el court_id de los parámetros de la URL (req.params)
   const { id } = req.params;
   const { name, state = true } = req.body;
@@ -1092,10 +1091,10 @@ const createSubcourt = async (req, res) => {
     await client.query("BEGIN");
 
     // 1. Verificar si la cancha existe y pertenece al usuario autenticado
-const courtResult = await client.query(
-  "SELECT id, price FROM courts WHERE user_id = $1",
-  [id],
-);
+    const courtResult = await client.query(
+      "SELECT id, price FROM courts WHERE user_id = $1",
+      [id],
+    );
 
     if (courtResult.rows.length === 0) {
       await client.query("ROLLBACK");
@@ -1108,23 +1107,23 @@ const courtResult = await client.query(
       "INSERT INTO subcourts (id,court_id, name, created_at, updated_at, state) VALUES ($1, $2, $3, $4, $5,$6) RETURNING *",
       [subcourtId, courtResult.rows[0].id, name, now, now, state],
     );
-        const daysOfWeek = [
-          "lunes",
-          "martes",
-          "miercoles",
-          "jueves",
-          "viernes",
-          "sábado",
-          "domingo",
-        ];
+    const daysOfWeek = [
+      "lunes",
+      "martes",
+      "miercoles",
+      "jueves",
+      "viernes",
+      "sábado",
+      "domingo",
+    ];
 
-        for (const day of daysOfWeek) {
-          const IdCourtPrice = v4();
-          await client.query(
-            "INSERT INTO subcourt_prices (subcourt_price_id, subcourt_id,day_of_week,price,updated_at ) VALUES ($1, $2, $3, $4, $5)",
-            [IdCourtPrice, subcourtId, day, courtResult.rows[0].price, now],
-          );
-        }
+    for (const day of daysOfWeek) {
+      const IdCourtPrice = v4();
+      await client.query(
+        "INSERT INTO subcourt_prices (subcourt_price_id, subcourt_id,day_of_week,price,updated_at ) VALUES ($1, $2, $3, $4, $5)",
+        [IdCourtPrice, subcourtId, day, courtResult.rows[0].price, now],
+      );
+    }
     await client.query("COMMIT");
 
     const newSubcourt = result.rows[0];
@@ -1147,7 +1146,6 @@ const courtResult = await client.query(
 const updateCourt = async (req, res) => {
   const id = req.params.id.trim();
   const { name, description, phone, court_type } = req.body;
-console.log(name)
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -1173,7 +1171,6 @@ console.log(name)
     res.status(200).json({ success: true, data: result.rows[0] });
   } catch (error) {
     await client.query("ROLLBACK");
-    console.log(error.message)
     res.status(500).json({ error: error.message });
   } finally {
     client.release();
@@ -1229,7 +1226,7 @@ const deleteCourt = async (req, res) => {
         failedFirebaseDeletions,
       );
     }
-let deleteCourtResult;
+    let deleteCourtResult;
 
     // --- ¡NUEVO: ELIMINAR SUBCANCHAS ASOCIADAS PRIMERO! ---
     await client.query(
@@ -1240,23 +1237,40 @@ let deleteCourtResult;
       await client.query("UPDATE users SET state = false WHERE id = $1", [
         userId,
       ]);
-       deleteCourtResult = await client.query("UPDATE courts SET state = false WHERE user_id = $1", [
-        userId,
-      ]);
-    }else{
+      deleteCourtResult = await client.query(
+        "UPDATE courts SET state = false WHERE user_id = $1",
+        [userId],
+      );
+    } else {
+      if (type === "services") {
+        const result = await client.query(
+          "SELECT COUNT(*) FROM courts WHERE user_id = $1 AND state = true",
+          [userId],
+        );
 
-      if(type === "services"){
-     deleteCourtResult = await client.query(
-      "UPDATE courts SET state = false WHERE user_id = $1",
-      [userId],
-      );
-      }else{
-           deleteCourtResult = await client.query(
-      "UPDATE courts SET state = false WHERE id = $1",
-      [id],
-      );
+        const count = parseInt(result.rows[0].count);
+
+        if (count === 1) {
+          await client.query("UPDATE courts SET state = false WHERE id = $1", [
+            id,
+          ]);
+
+          // 3️⃣ Desactivar usuario
+          await client.query("UPDATE users SET state = false WHERE id = $1", [
+            userId,
+          ]);
+        } else {
+          await client.query("UPDATE courts SET state = false WHERE id = $1", [
+            id,
+          ]);
+        }
+      } else {
+        deleteCourtResult = await client.query(
+          "UPDATE courts SET state = false WHERE id = $1",
+          [id],
+        );
       }
-  }
+    }
 
     if (deleteCourtResult.rowCount === 0) {
       await client.query("ROLLBACK");
@@ -1265,7 +1279,7 @@ let deleteCourtResult;
         .json({ error: "Cancha no encontrada después de verificar." });
     }
 
-     await client.query("UPDATE photos SET state=false WHERE court_id = $1", [
+    await client.query("UPDATE photos SET state=false WHERE court_id = $1", [
       id,
     ]);
 
@@ -1828,7 +1842,7 @@ Si tienes dudas escríbenos.`;
 const getSubCourtPrice = async (req, res) => {
   const { subcourtId } = req.params;
 
-  console.log(subcourtId)
+  console.log(subcourtId);
   try {
     const result = await pool.query(
       ` SELECT
