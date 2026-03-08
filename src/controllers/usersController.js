@@ -43,10 +43,10 @@ const register = async (req, res) => {
     description,
     state,
     subcourts,
+    is_paid
   } = req.body;
 
-  console.log(req.body);
-  console.log(court_type);
+  console.log(is_paid);
 
   const client = await pool.connect();
   try {
@@ -64,7 +64,7 @@ const register = async (req, res) => {
     const now = new Date();
 
     await client.query(
-      "insert into courts(id, name, address, city, phone, court_type, is_public, description, created_at, updated_at, state, user_id,price) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
+      "insert into courts(id, name, address, city, phone, court_type, is_public, description, created_at, updated_at, state, user_id,price,is_paid) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,$14)",
       [
         courtId,
         courtName,
@@ -79,6 +79,7 @@ const register = async (req, res) => {
         state,
         user_id,
         price,
+        is_paid
       ],
     );
 
@@ -148,7 +149,7 @@ const registerServices = async (req, res) => {
     state,
     court_type,
     is_public,
-    is_court,
+    is_paid,
     type,
   } = req.body;
 
@@ -163,7 +164,7 @@ const registerServices = async (req, res) => {
     const serviceId = v4();
     const now = new Date(); // Insertar solo en la tabla 'courts'
     await client.query(
-      "insert into courts(id, name, address, city, phone, price, description, created_at, updated_at, state, user_id,is_court,type,court_type) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,$13,$14)",
+      "insert into courts(id, name, address, city, phone, price, description, created_at, updated_at, state, user_id,is_paid,type,court_type) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,$13,$14)",
       [
         serviceId,
         courtName,
@@ -176,7 +177,7 @@ const registerServices = async (req, res) => {
         now,
         state,
         userId,
-        is_court,
+        is_paid,
         court_type,
         type,
       ],
@@ -236,7 +237,7 @@ const registerPromotions = async (req, res) => {
     const now = new Date();
 
     await client.query(
-      "insert into courts(id, name, address, city, phone, price, description, created_at, updated_at, state, user_id, is_court, type) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
+      "insert into courts(id, name, address, city, phone, price, description, created_at, updated_at, state, user_id, is_paid, type) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
       [
         promotionId,
         name,
@@ -858,7 +859,7 @@ const getCourts = async (req, res) => {
           c.state,
           c.created_at,
           c.updated_at,
-          c.is_court,
+          c.is_paid,
           c.type,
           -- Solo muestra owner_name cuando NO es 'court' (es decir, es promotion o service)
           -- y busca el owner en el registro court correspondiente
@@ -931,7 +932,7 @@ const getServices = async (req, res) => {
           c.state,
           c.created_at,
           c.updated_at,
-          c.is_court,
+          c.is_paid,
           COALESCE(json_agg(DISTINCT jsonb_build_object('id', p.id, 'url', p.url)) FILTER (WHERE p.id IS NOT NULL), '[]') AS photos
       FROM
           courts c
@@ -978,7 +979,7 @@ const getCourtById = async (req, res) => {
           c.state,
           c.created_at,
           c.updated_at,
-          c.is_court,
+          c.is_paid,
           c.type,
           COALESCE(json_agg(DISTINCT jsonb_build_object('id', p.id, 'url', p.url)) FILTER (WHERE p.id IS NOT NULL), '[]') AS photos
       FROM
@@ -1356,6 +1357,7 @@ const deleteSubcourt = async (req, res) => {
 
 const createReservation = async (req, res) => {
   const { subcourtId } = req.params;
+
   const {
     user_id,
     reservation_date,
@@ -1374,21 +1376,38 @@ const createReservation = async (req, res) => {
 
   try {
     await dbClient.query("BEGIN");
-    // 1. Lock
-    await dbClient.query(`SELECT id FROM subcourts WHERE id = $1 FOR UPDATE`, [
-      subcourtId,
-    ]);
+
+    // 1️⃣ Lock + validar que la cancha esté pagada
+    const subcourtCheck = await dbClient.query(
+      `SELECT s.id
+       FROM subcourts s
+       INNER JOIN courts c ON c.id = s.court_id
+       WHERE s.id = $1
+       AND c.is_paid = true
+       FOR UPDATE`,
+      [subcourtId]
+    );
+
+    if (subcourtCheck.rows.length === 0) {
+      await dbClient.query("ROLLBACK");
+      return res.status(403).json({
+        success: false,
+        error: "Esta cancha no está habilitada para reservas.",
+      });
+    }
+
+    // 2️⃣ Validar si ya existe reserva en ese horario
     const existingReservations = await dbClient.query(
       `SELECT id FROM reservations
-      WHERE subcourt_id = $1
-      AND reservation_date = $2
-      AND state = true
-      AND (
-        $3 < end_time AND $4 > reservation_time
-      )
-      LIMIT 1 FOR UPDATE`,
-      [subcourtId, reservation_date, reservation_time, end_time],
+       WHERE subcourt_id = $1
+       AND reservation_date = $2
+       AND state = true
+       AND ($3 < end_time AND $4 > reservation_time)
+       LIMIT 1
+       FOR UPDATE`,
+      [subcourtId, reservation_date, reservation_time, end_time]
     );
+
     if (existingReservations.rows.length > 0) {
       await dbClient.query("ROLLBACK");
       return res.status(409).json({
@@ -1400,14 +1419,15 @@ const createReservation = async (req, res) => {
     const reservationId = v4();
     const now = new Date();
 
-    // 3. Insertar la reserva
+    // 3️⃣ Insertar la reserva
     const result = await dbClient.query(
       `INSERT INTO reservations (
-                id, user_id, subcourt_id, reservation_date, reservation_time, duration,
-                end_time, state, price_reservation, transfer, created_at, updated_at,
-                user_name, phone, payment_method
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-            RETURNING id, subcourt_id, reservation_date, reservation_time`,
+        id, user_id, subcourt_id, reservation_date, reservation_time, duration,
+        end_time, state, price_reservation, transfer, created_at, updated_at,
+        user_name, phone, payment_method
+      ) 
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+      RETURNING id, subcourt_id, reservation_date, reservation_time`,
       [
         reservationId,
         user_id,
@@ -1424,41 +1444,47 @@ const createReservation = async (req, res) => {
         user_name,
         phone,
         payment_method,
-      ],
+      ]
     );
 
     await dbClient.query("COMMIT");
 
+    // 4️⃣ Formatear datos para mensaje
     const dateForTemplate = new Date(
-      reservation_date + "T00:00:00",
+      reservation_date + "T00:00:00"
     ).toLocaleDateString("es-CO", {
       weekday: "long",
       day: "numeric",
       month: "long",
     });
+
     const timeForTemplate = new Date(
-      `${reservation_date}T${reservation_time}:00`,
+      `${reservation_date}T${reservation_time}:00`
     ).toLocaleTimeString("es-CO", {
       hour: "numeric",
       minute: "2-digit",
       hour12: true,
     });
+
     const durationInHours = duration / 60;
+
     const durationForTemplate =
       duration % 60 === 0
         ? `${durationInHours} hora${durationInHours > 1 ? "s" : ""}`
         : `${duration} minutos`;
+
     const priceForTemplate = new Intl.NumberFormat("es-CO", {
       style: "currency",
       currency: "COP",
     }).format(price_reservation);
 
+    // 5️⃣ Obtener nombres cancha y subcancha
     const namecancha = await pool.query(
-      `SELECT c.name as courtname, s.name as subcourtname 
-             FROM subcourts s
-             INNER JOIN courts c ON c.id = s.court_id 
-             WHERE s.id = $1`,
-      [subcourtId],
+      `SELECT c.name as courtname, s.name as subcourtname
+       FROM subcourts s
+       INNER JOIN courts c ON c.id = s.court_id
+       WHERE s.id = $1`,
+      [subcourtId]
     );
 
     const names = namecancha.rows[0] || {
@@ -1466,8 +1492,18 @@ const createReservation = async (req, res) => {
       subcourtname: "N/A",
     };
 
-    const messageBody = `¡Hola ${user_name}! Tu reserva ha sido confirmada.\nCancha: ${names.courtname}\nSubcancha: ${names.subcourtname}\nFecha: ${dateForTemplate}\nHora: ${timeForTemplate}\nDuración: ${durationForTemplate}\nPrecio: ${priceForTemplate}\n\n¡Gracias por tu reserva!`;
+    // 6️⃣ Crear mensaje WhatsApp
+    const messageBody = `¡Hola ${user_name}! Tu reserva ha sido confirmada.
+      Cancha: ${names.courtname}
+      Subcancha: ${names.subcourtname}
+      Fecha: ${dateForTemplate}
+      Hora: ${timeForTemplate}
+      Duración: ${durationForTemplate}
+      Precio: ${priceForTemplate}
 
+      ¡Gracias por tu reserva!`;
+
+    // 7️⃣ Enviar mensaje WhatsApp
     try {
       await twilioClient.messages.create({
         body: messageBody,
@@ -1482,22 +1518,26 @@ const createReservation = async (req, res) => {
       success: true,
       reservation: result.rows[0],
     });
+
   } catch (error) {
     await dbClient.query("ROLLBACK");
+
     console.error("Error en createReservation:", error.message);
 
     if (error.code === "23503") {
-      return res
-        .status(400)
-        .json({ error: "El subcourt_id o user_id no existe." });
+      return res.status(400).json({
+        error: "El subcourt_id o user_id no existe.",
+      });
     }
 
-    return res.status(500).json({ error: "Error al crear la reserva." });
+    return res.status(500).json({
+      error: "Error al crear la reserva.",
+    });
+
   } finally {
     dbClient.release();
   }
 };
-
 const deleteReservation = async (req, res) => {
   const { id } = req.params;
   console.log(id);
