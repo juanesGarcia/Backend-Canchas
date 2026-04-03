@@ -153,7 +153,6 @@ const registerServices = async (req, res) => {
     state,
     court_type,
     is_public,
-    is_paid,
     type,
   } = req.body;
 
@@ -168,7 +167,7 @@ const registerServices = async (req, res) => {
     const serviceId = v4();
     const now = new Date(); // Insertar solo en la tabla 'courts'
     await client.query(
-      "insert into courts(id, name, address, city, phone, price, description, created_at, updated_at, state, user_id,is_paid,type,court_type) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,$13,$14)",
+      "insert into courts(id, name, address, city, phone, price, description, created_at, updated_at, state, user_id,is_public,type,court_type) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,$13,$14)",
       [
         serviceId,
         courtName,
@@ -181,7 +180,7 @@ const registerServices = async (req, res) => {
         now,
         state,
         userId,
-        is_paid,
+        is_public,
         court_type,
         type,
       ],
@@ -1186,126 +1185,114 @@ const updateCourt = async (req, res) => {
 
 const deleteCourt = async (req, res) => {
   const { id } = req.params;
-
   const client = await pool.connect();
+
   try {
     await client.query("BEGIN");
+
     const courtResult = await client.query(
       "SELECT user_id, type FROM courts WHERE id = $1",
       [id],
     );
-    const { user_id: userId, type } = courtResult.rows[0];
+
     if (courtResult.rows.length === 0) {
       await client.query("ROLLBACK");
       return res.status(404).json({ error: "Cancha no encontrada." });
     }
+
+    const { user_id: userId, type } = courtResult.rows[0];
     const photosResult = await client.query(
-      "SELECT url FROM photos WHERE id = $1",
+      "SELECT url FROM photos WHERE court_id = $1",
       [id],
     );
-    const photosToDelete = photosResult.rows;
 
+    const photosToDelete = photosResult.rows;
     const firebaseDeletePromises = photosToDelete.map(async (photo) => {
       try {
-        const fileNameInFirebase = photo.url;
-
-        if (fileNameInFirebase) {
-          await deleteFileByName(fileNameInFirebase);
+        if (photo.url) {
+          await deleteFileByName(photo.url);
         }
         return { success: true, url: photo.url };
-      } catch (firebaseError) {
-        console.error(
-          "Error al eliminar foto de Firebase:",
-          photo.url,
-          firebaseError.message,
-        );
-        return { success: false, url: photo.url, error: firebaseError.message };
+      } catch (error) {
+        console.error("Error Firebase:", photo.url, error.message);
+        return { success: false, url: photo.url };
       }
     });
-    const firebaseDeletionResults = await Promise.all(firebaseDeletePromises);
 
-    const failedFirebaseDeletions = firebaseDeletionResults.filter(
-      (r) => !r.success,
-    );
-    if (failedFirebaseDeletions.length > 0) {
-      console.warn(
-        "Algunas imágenes no se pudieron eliminar de Firebase Storage:",
-        failedFirebaseDeletions,
-      );
-    }
-    let deleteCourtResult;
+    const firebaseResults = await Promise.all(firebaseDeletePromises);
 
-    // --- ¡NUEVO: ELIMINAR SUBCANCHAS ASOCIADAS PRIMERO! ---
+    const failedFirebase = firebaseResults.filter((r) => !r.success);
+
     await client.query(
       "UPDATE subcourts SET state = false WHERE court_id = $1",
       [id],
     );
+
+    let deleteCourtResult;
+
     if (type === "court") {
       await client.query("UPDATE users SET state = false WHERE id = $1", [
         userId,
       ]);
+
       deleteCourtResult = await client.query(
         "UPDATE courts SET state = false WHERE user_id = $1",
         [userId],
       );
+
     } else {
+      deleteCourtResult = await client.query(
+        "UPDATE courts SET state = false WHERE id = $1",
+        [id],
+      );
       if (type === "services") {
         const result = await client.query(
-          "SELECT COUNT(*) FROM courts WHERE user_id = $1 AND state = true",
+          "SELECT COUNT(*)::int AS count FROM courts WHERE user_id = $1 AND state = true",
           [userId],
         );
 
-        const count = parseInt(result.rows[0].count);
+        const count = result.rows[0]?.count ?? 0;
 
         if (count === 1) {
-          await client.query("UPDATE courts SET state = false WHERE id = $1", [
-            id,
-          ]);
-
-          // 3️⃣ Desactivar usuario
           await client.query("UPDATE users SET state = false WHERE id = $1", [
             userId,
           ]);
-        } else {
-          await client.query("UPDATE courts SET state = false WHERE id = $1", [
-            id,
-          ]);
         }
-      } else {
-        deleteCourtResult = await client.query(
-          "UPDATE courts SET state = false WHERE id = $1",
-          [id],
-        );
       }
     }
-
-    if (deleteCourtResult.rowCount === 0) {
+    if (!deleteCourtResult || deleteCourtResult.rowCount === 0) {
       await client.query("ROLLBACK");
       return res
         .status(404)
-        .json({ error: "Cancha no encontrada después de verificar." });
+        .json({ error: "No se pudo actualizar la cancha." });
     }
 
-    await client.query("UPDATE photos SET state=false WHERE court_id = $1", [
-      id,
-    ]);
+    await client.query(
+      "UPDATE photos SET state = false WHERE court_id = $1",
+      [id],
+    );
 
     await client.query("COMMIT");
-    res.status(200).json({
+
+    return res.status(200).json({
       success: true,
-      message: "Cancha y sus datos asociados eliminados exitosamente.",
-      firebase_deletion_summary:
-        failedFirebaseDeletions.length > 0
+      message: "Cancha eliminada correctamente.",
+      firebase_summary:
+        failedFirebase.length > 0
           ? "Algunas imágenes no se eliminaron de Firebase."
-          : "Todas las imágenes asociadas se eliminaron de Firebase.",
-      failed_firebase_deletions: failedFirebaseDeletions,
+          : "Todas las imágenes eliminadas correctamente.",
+      failed_firebase: failedFirebase,
     });
+
   } catch (error) {
     await client.query("ROLLBACK");
-    console.error("Error al eliminar la cancha:", error.message);
-    res
-      .status(500)
-      .json({ error: "Error al eliminar la cancha: " + error.message });
+    console.error("Error deleteCourt:", error.message);
+
+    return res.status(500).json({
+      error: "Error interno al eliminar la cancha",
+      detail: error.message,
+    });
+
   } finally {
     client.release();
   }
