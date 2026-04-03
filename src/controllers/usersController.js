@@ -981,8 +981,8 @@ const getCourtById = async (req, res) => {
           c.updated_at,
           c.is_paid,
           c.type,
-          c.lng,
-          c.lat,
+          c.longitude,
+          c.latitude,
           COALESCE(json_agg(DISTINCT jsonb_build_object('id', p.id, 'url', p.url)) FILTER (WHERE p.id IS NOT NULL), '[]') AS photos
       FROM
           courts c
