@@ -43,7 +43,9 @@ const register = async (req, res) => {
     description,
     state,
     subcourts,
-    is_paid
+    is_paid,
+    latitude,
+    longitude
   } = req.body;
 
   console.log(is_paid);
@@ -64,7 +66,7 @@ const register = async (req, res) => {
     const now = new Date();
 
     await client.query(
-      "insert into courts(id, name, address, city, phone, court_type, is_public, description, created_at, updated_at, state, user_id,price,is_paid) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,$14)",
+      "insert into courts(id, name, address, city, phone, court_type, is_public, description, created_at, updated_at, state, user_id,price,is_paid,latitude,longitude) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,$14,$15,$16)",
       [
         courtId,
         courtName,
@@ -79,7 +81,9 @@ const register = async (req, res) => {
         state,
         user_id,
         price,
-        is_paid
+        is_paid,
+        latitude,
+        longitude
       ],
     );
 
