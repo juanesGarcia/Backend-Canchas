@@ -45,6 +45,7 @@ const {
   getCourtPhone,
   getInactiveUsers,
   activateUser,
+  deactivateUser,
 } = require('../controllers/usersController');
 const { registerValidator, loginValidation, updateValidator } = require('../validators/users');
 const { validationMiddleware } = require('../middlewares/validation-middleware');
@@ -102,5 +103,6 @@ router.get('/:id/price', getSubcourtPriceByDate);
 router.post('/reservations/:reservationId/reminder', sendReservationReminder);
 router.get('/inactiveUsers', getInactiveUsers);
 router.put('/activateUser/:userId', activateUser);
+router.put('/deactivateUser/:userId', activateUser);
 
 module.exports = router;

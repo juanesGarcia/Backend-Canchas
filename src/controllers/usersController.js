@@ -43,6 +43,16 @@ const activateUser = async (req, res) => {
     console.log(error.message);
   }
 };
+
+const deactivateUser = async (req, res) => {
+  try {
+    const { id } = req.params;
+    await pool.query('UPDATE users SET state = false WHERE id = $1', [id]);
+    res.status(200).json({ message: 'Usuario desactivado correctamente' });
+  } catch (error) {
+    console.log(error.message);
+  }
+};
 // Asegúrate de que esta ruta sea correcta
 
 const register = async (req, res) => {
@@ -2521,4 +2531,5 @@ module.exports = {
   getCourtPhone,
   getInactiveUsers,
   activateUser,
+  deactivateUser,
 };
