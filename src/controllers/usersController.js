@@ -22,6 +22,27 @@ const getUsers = async (req, res) => {
   }
 };
 
+const getInactiveUsers = async (req, res) => {
+  try {
+    // Nota: quité los paréntesis en el SELECT porque en PostgreSQL eso retorna un solo objeto compuesto, no las columnas separadas.
+    const result = await pool.query(
+      'SELECT id, name, email, role, phone FROM users WHERE state = false'
+    );
+    res.json(result.rows);
+  } catch (error) {
+    console.log(error.message);
+  }
+};
+
+const activateUser = async (req, res) => {
+  try {
+    const { id } = req.params;
+    await pool.query('UPDATE users SET state = true WHERE id = $1', [id]);
+    res.status(200).json({ message: 'Usuario reactivado correctamente' });
+  } catch (error) {
+    console.log(error.message);
+  }
+};
 // Asegúrate de que esta ruta sea correcta
 
 const register = async (req, res) => {
@@ -2498,4 +2519,6 @@ module.exports = {
   getSubCourtsName,
   updateTransferWithPrice,
   getCourtPhone,
+  getInactiveUsers,
+  activateUser,
 };
