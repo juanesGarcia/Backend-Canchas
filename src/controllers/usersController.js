@@ -22,12 +22,9 @@ const getUsers = async (req, res) => {
   }
 };
 
-const getInactiveUsers = async (req, res) => {
+const getUsersFilter = async (req, res) => {
   try {
-    // Nota: quité los paréntesis en el SELECT porque en PostgreSQL eso retorna un solo objeto compuesto, no las columnas separadas.
-    const result = await pool.query(
-      'SELECT id, name, email, role, phone FROM users WHERE state = false'
-    );
+    const result = await pool.query('SELECT id, name, email, role, phone, state FROM users ');
     res.json(result.rows);
   } catch (error) {
     console.log(error.message);
@@ -2529,7 +2526,7 @@ module.exports = {
   getSubCourtsName,
   updateTransferWithPrice,
   getCourtPhone,
-  getInactiveUsers,
+  getUsersFilter,
   activateUser,
   deactivateUser,
 };

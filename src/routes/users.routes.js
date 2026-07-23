@@ -43,7 +43,7 @@ const {
   getSubCourtsName,
   updateTransferWithPrice,
   getCourtPhone,
-  getInactiveUsers,
+  getUsersFilter,
   activateUser,
   deactivateUser,
 } = require('../controllers/usersController');
@@ -101,8 +101,8 @@ router.get('/analytics/frequentClients/:id', getFrequentClients);
 router.get('/analytics/revenuePayment/:id', getRevenueByPaymentMethod);
 router.get('/:id/price', getSubcourtPriceByDate);
 router.post('/reservations/:reservationId/reminder', sendReservationReminder);
-router.get('/inactiveUsers', getInactiveUsers);
+router.get('/usersFilter', getUsersFilter);
 router.put('/activateUser/:userId', activateUser);
-router.put('/deactivateUser/:userId', activateUser);
+router.put('/deactivateUser/:userId', deactivateUser);
 
 module.exports = router;
