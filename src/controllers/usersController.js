@@ -24,7 +24,10 @@ const getUsers = async (req, res) => {
 
 const getUsersFilter = async (req, res) => {
   try {
-    const result = await pool.query('SELECT id, name, email, role, phone, state FROM users ');
+    const result = await pool.query(
+      'SELECT id, name, email, role, phone, state FROM users where role!= $1',
+      ['superadmin']
+    );
     res.json(result.rows);
   } catch (error) {
     console.log(error.message);
@@ -34,7 +37,7 @@ const getUsersFilter = async (req, res) => {
 const activateUser = async (req, res) => {
   try {
     const { id } = req.params;
-    await pool.query('UPDATE users SET state = true WHERE id = $1', [id]);
+    await pool.query("UPDATE users SET state = true WHERE id = $1 and role!= 'superadmin'", [id]);
     res.status(200).json({ message: 'Usuario reactivado correctamente' });
   } catch (error) {
     console.log(error.message);
@@ -44,7 +47,7 @@ const activateUser = async (req, res) => {
 const deactivateUser = async (req, res) => {
   try {
     const { id } = req.params;
-    await pool.query('UPDATE users SET state = false WHERE id = $1', [id]);
+    await pool.query("UPDATE users SET state = false WHERE id = $1 and role!='superadmin'", [id]);
     res.status(200).json({ message: 'Usuario desactivado correctamente' });
   } catch (error) {
     console.log(error.message);
