@@ -36,21 +36,51 @@ const getUsersFilter = async (req, res) => {
 
 const activateUser = async (req, res) => {
   try {
+    await client.query('BEGIN');
     const { id } = req.params;
     await pool.query("UPDATE users SET state = true WHERE id = $1 and role!= 'superadmin'", [id]);
+    await pool.query('UPDATE courts SET state = true WHERE user_id = $1', [id]);
+    await client.query('COMMIT');
     res.status(200).json({ message: 'Usuario reactivado correctamente' });
   } catch (error) {
+    await client.query('ROLLBACK');
     console.log(error.message);
   }
 };
 
 const deactivateUser = async (req, res) => {
   try {
+    await client.query('BEGIN');
     const { id } = req.params;
     await pool.query("UPDATE users SET state = false WHERE id = $1 and role!='superadmin'", [id]);
+    await pool.query('UPDATE courts SET state = false WHERE user_id = $1', [id]);
+    await client.query('COMMIT');
     res.status(200).json({ message: 'Usuario desactivado correctamente' });
   } catch (error) {
+    await client.query('ROLLBACK');
     console.log(error.message);
+  }
+};
+
+const resetPassword = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    await pool.query(
+      `UPDATE users
+       SET password = $1
+       WHERE id = $2`,
+      ['$2b$10$034eCuv3FT5Ag0Vl4FQDy.SbRpkdGsS0F4ll6JHJqorreHsqz9/vi', id]
+    );
+
+    res.status(200).json({
+      message: 'Contraseña restablecida correctamente',
+    });
+  } catch (error) {
+    console.log(error.message);
+    res.status(500).json({
+      message: 'Error al restablecer la contraseña',
+    });
   }
 };
 // Asegúrate de que esta ruta sea correcta
@@ -2532,4 +2562,5 @@ module.exports = {
   getUsersFilter,
   activateUser,
   deactivateUser,
+  resetPassword,
 };
