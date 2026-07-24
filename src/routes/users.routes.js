@@ -105,6 +105,6 @@ router.post('/reservations/:reservationId/reminder', sendReservationReminder);
 router.get('/usersFilter', getUsersFilter);
 router.put('/activateUser/:userId', activateUser);
 router.put('/deactivateUser/:userId', deactivateUser);
-router.put('/resetPassword/:userId', resetPassword);
+router.post('/resetPassword/:userId', resetPassword);
 
 module.exports = router;
