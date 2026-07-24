@@ -103,8 +103,8 @@ router.get('/analytics/revenuePayment/:id', getRevenueByPaymentMethod);
 router.get('/:id/price', getSubcourtPriceByDate);
 router.post('/reservations/:reservationId/reminder', sendReservationReminder);
 router.get('/usersFilter', getUsersFilter);
-router.put('/activateUser/:userId', activateUser);
-router.put('/deactivateUser/:userId', deactivateUser);
-router.put('/resetPassword/:userId', resetPassword);
+router.put('/activateUser/:id', activateUser);
+router.put('/deactivateUser/:id', deactivateUser);
+router.put('/resetPassword/:id', resetPassword);
 
 module.exports = router;
