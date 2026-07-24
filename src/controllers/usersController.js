@@ -36,28 +36,59 @@ const getUsersFilter = async (req, res) => {
 
 const activateUser = async (req, res) => {
   try {
-    await client.query('BEGIN');
+    await pool.query('BEGIN');
     const { id } = req.params;
-    await pool.query("UPDATE users SET state = true WHERE id = $1 and role!= 'superadmin'", [id]);
-    await pool.query('UPDATE courts SET state = true WHERE user_id = $1', [id]);
-    await client.query('COMMIT');
-    res.status(200).json({ message: 'Usuario reactivado correctamente' });
+    console.log('ID del usuario a activar:', id);
+
+    // Ejecutamos el primero y guardamos el resultado
+    const userResult = await pool.query(
+      "UPDATE users SET state = true WHERE id = $1 and role != 'superadmin'",
+      [id]
+    );
+    console.log(`Usuario actualizado: ${userResult.rowCount} fila(s)`);
+
+    // Ejecutamos el segundo y guardamos el resultado
+    const courtResult = await pool.query('UPDATE courts SET state = true WHERE user_id = $1', [id]);
+    console.log(`Canchas actualizadas: ${courtResult.rowCount} fila(s)`);
+
+    await pool.query('COMMIT');
+
+    res.status(200).json({
+      message: 'Usuario reactivado correctamente',
+      usersUpdated: userResult.rowCount,
+      courtsUpdated: courtResult.rowCount, // Te devuelve cuántas canchas actualizó
+    });
   } catch (error) {
-    await client.query('ROLLBACK');
-    console.log(error.message);
+    await pool.query('ROLLBACK');
+    console.log('Error en activateUser:', error.message);
+
+    // ✅ AGREGAR ESTO: Enviar respuesta al frontend si falla
+    res.status(500).json({
+      error: 'Error al reactivar el usuario',
+      detail: error.message,
+    });
   }
 };
 
 const deactivateUser = async (req, res) => {
   try {
-    await client.query('BEGIN');
+    await pool.query('BEGIN');
     const { id } = req.params;
-    await pool.query("UPDATE users SET state = false WHERE id = $1 and role!='superadmin'", [id]);
-    await pool.query('UPDATE courts SET state = false WHERE user_id = $1', [id]);
-    await client.query('COMMIT');
+    console.log('ID del usuario a desactivar:', id);
+    const userResult = await pool.query(
+      "UPDATE users SET state = false WHERE id = $1 and role!='superadmin'",
+      [id]
+    );
+    console.log(`Usuario actualizado: ${userResult.rowCount} fila(s)`);
+    const courtResult = await pool.query('UPDATE courts SET state = false WHERE user_id = $1', [
+      id,
+    ]);
+    console.log(`Canchas actualizadas: ${courtResult.rowCount} fila(s)`);
+    await pool.query('COMMIT');
     res.status(200).json({ message: 'Usuario desactivado correctamente' });
   } catch (error) {
-    await client.query('ROLLBACK');
+    console.log(error.message);
+    await pool.query('ROLLBACK');
     console.log(error.message);
   }
 };
@@ -65,6 +96,8 @@ const deactivateUser = async (req, res) => {
 const resetPassword = async (req, res) => {
   try {
     const { id } = req.params;
+
+    console.log('llegue');
 
     await pool.query(
       `UPDATE users
