@@ -1336,6 +1336,19 @@ const createReservation = async (req, res) => {
     payment_method,
   } = req.body;
 
+  const [startHour, startMinute] = reservation_time.split(':').map(Number);
+
+  const startMinutes = startHour * 60 + startMinute;
+  const endMinutes = startMinutes + Number(duration);
+
+  // 24:00 = 1440 minutos
+  if (endMinutes > 1440) {
+    return res.status(400).json({
+      success: false,
+      error: 'La reserva no puede terminar después de las 12:00 de la noche.',
+    });
+  }
+
   const dbClient = await pool.connect();
 
   try {
