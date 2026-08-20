@@ -1341,7 +1341,6 @@ const createReservation = async (req, res) => {
   const startMinutes = startHour * 60 + startMinute;
   const endMinutes = startMinutes + Number(duration);
 
-  // 24:00 = 1440 minutos
   if (endMinutes > 1440) {
     return res.status(400).json({
       success: false,
